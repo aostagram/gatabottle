@@ -5,7 +5,7 @@ import { BottleSea, type SeaBottle } from "./BottleSea";
 async function getActiveBottles(): Promise<SeaBottle[]> {
   const now = Date.now();
   const result = await db.execute({
-    sql: `SELECT id, youtube_id, comment
+    sql: `SELECT id
             FROM bottles
            WHERE is_archived = 0
              AND status = 'active'
@@ -14,11 +14,7 @@ async function getActiveBottles(): Promise<SeaBottle[]> {
            LIMIT 30`,
     args: [now],
   });
-  return result.rows.map((row) => ({
-    id: String(row.id),
-    youtube_id: String(row.youtube_id),
-    comment: String(row.comment),
-  }));
+  return result.rows.map((row) => ({ id: String(row.id) }));
 }
 
 export default async function Home() {

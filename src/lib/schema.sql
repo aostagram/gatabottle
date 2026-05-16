@@ -26,3 +26,17 @@ CREATE TABLE IF NOT EXISTS bottles (
 CREATE INDEX IF NOT EXISTS idx_bottles_active   ON bottles(is_archived, status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_bottles_archived ON bottles(is_archived, like_count DESC);
 CREATE INDEX IF NOT EXISTS idx_bottles_owner    ON bottles(device_id);
+
+CREATE TABLE IF NOT EXISTS picks (
+  id                TEXT    PRIMARY KEY,
+  bottle_id         TEXT    NOT NULL,
+  picker_device_id  TEXT    NOT NULL,
+  picked_at         INTEGER NOT NULL,
+  FOREIGN KEY (bottle_id) REFERENCES bottles(id),
+  FOREIGN KEY (picker_device_id) REFERENCES devices(device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_picks_picker ON picks(picker_device_id);
+CREATE INDEX IF NOT EXISTS idx_picks_bottle ON picks(bottle_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_unique ON picks(bottle_id, picker_device_id);
