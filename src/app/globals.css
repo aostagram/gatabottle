@@ -51,6 +51,16 @@ body {
   50% { opacity: 0.8; }
 }
 
+@keyframes drift {
+  from { transform: translateX(0) scale(var(--bot-scale, 1)); }
+  to   { transform: translateX(calc(100vw + 8rem)) scale(var(--bot-scale, 1)); }
+}
+
+@keyframes openIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 .bob {
   animation: bob 5s ease-in-out infinite;
   transform-origin: center;
@@ -63,4 +73,15 @@ body {
 
 .shimmer {
   animation: shimmer 3s ease-in-out infinite;
+}
+
+.drift {
+  animation-name: drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.open-anim {
+  animation: openIn 220ms ease-out;
 }

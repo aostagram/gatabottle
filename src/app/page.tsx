@@ -1,4 +1,29 @@
-export default function Home() {
+import Link from "next/link";
+import { db } from "@/lib/db";
+import { BottleSea, type SeaBottle } from "./BottleSea";
+
+async function getActiveBottles(): Promise<SeaBottle[]> {
+  const now = Date.now();
+  const result = await db.execute({
+    sql: `SELECT id, youtube_id, comment
+            FROM bottles
+           WHERE is_archived = 0
+             AND status = 'active'
+             AND expires_at > ?
+        ORDER BY created_at DESC
+           LIMIT 30`,
+    args: [now],
+  });
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    youtube_id: String(row.youtube_id),
+    comment: String(row.comment),
+  }));
+}
+
+export default async function Home() {
+  const bottles = await getActiveBottles();
+
   return (
     <main className="relative flex-1 flex flex-col items-center justify-between overflow-hidden">
       {/* きらきら */}
@@ -18,6 +43,9 @@ export default function Home() {
         ))}
       </div>
 
+      {/* 流れるボトル */}
+      <BottleSea bottles={bottles} />
+
       {/* タイトル */}
       <header className="relative z-10 pt-16 sm:pt-24 text-center px-6">
         <p className="text-sm sm:text-base tracking-[0.4em] text-ink/70 mb-3">
@@ -35,16 +63,6 @@ export default function Home() {
           誰かが、いつか、拾ってくれるかもしれない。
         </p>
       </header>
-
-      {/* ボトル */}
-      <div className="relative z-10 flex items-end justify-center pt-12">
-        <div
-          className="bob text-7xl sm:text-9xl select-none"
-          aria-label="海に浮かぶボトル"
-        >
-          🍾
-        </div>
-      </div>
 
       {/* 海面の波 */}
       <div
@@ -69,13 +87,16 @@ export default function Home() {
         </svg>
       </div>
 
-      {/* フッター */}
-      <footer className="relative z-10 w-full px-6 pb-8 pt-4 text-center text-ink/70">
-        <div className="inline-block rounded-full bg-sand/70 backdrop-blur px-5 py-2 text-sm">
-          🌊 ただいま準備中 — Coming Soon
-        </div>
-        <p className="mt-4 text-xs tracking-widest">
-          v0.1 prototype · gatabottle.com
+      {/* CTA */}
+      <footer className="relative z-10 w-full px-6 pb-10 pt-2 text-center">
+        <Link
+          href="/post"
+          className="inline-block rounded-full bg-ribbon px-7 py-3 text-sm font-semibold tracking-widest text-sand shadow-lg transition hover:bg-ribbon/90"
+        >
+          🍾 ボトルを流す
+        </Link>
+        <p className="mt-4 text-xs tracking-widest text-ink/60">
+          v0.1 · gatabottle.com
         </p>
       </footer>
     </main>
