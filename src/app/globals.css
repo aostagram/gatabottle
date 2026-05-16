@@ -1,26 +1,66 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sea-deep: #0d3b66;
+  --sea-mid: #1e6091;
+  --sea-shallow: #2a9d8f;
+  --sky-dawn: #ffd6a5;
+  --sky-sunset: #ffa07a;
+  --sand: #fdf6e3;
+  --ribbon: #e63946;
+  --ink: #1d3557;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-sea-deep: var(--sea-deep);
+  --color-sea-mid: var(--sea-mid);
+  --color-sea-shallow: var(--sea-shallow);
+  --color-sky-dawn: var(--sky-dawn);
+  --color-sky-sunset: var(--sky-sunset);
+  --color-sand: var(--sand);
+  --color-ribbon: var(--ribbon);
+  --color-ink: var(--ink);
+  --font-klee: var(--font-klee);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: linear-gradient(
+    to bottom,
+    var(--sky-dawn) 0%,
+    var(--sky-sunset) 28%,
+    var(--sea-shallow) 52%,
+    var(--sea-mid) 75%,
+    var(--sea-deep) 100%
+  );
+  color: var(--ink);
+  font-family: var(--font-klee), "Hiragino Mincho ProN", "Yu Mincho", serif;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-12px) rotate(4deg); }
+}
+
+@keyframes wave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.bob {
+  animation: bob 5s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.wave {
+  animation: wave 14s linear infinite;
+}
+
+.shimmer {
+  animation: shimmer 3s ease-in-out infinite;
 }
