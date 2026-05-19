@@ -3,11 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { startOfJstDay } from "@/lib/time";
 import { extractYoutubeId } from "@/lib/youtube";
 
 const BOTTLE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMENT_MAX_LENGTH = 140;
 const DEVICE_ID_RE = /^[0-9a-f-]{8,64}$/i;
+
+/** 1 device が 1 日（JST 基準）に流せるボトルの上限。 */
+export const DAILY_BOTTLE_LIMIT = 3;
+/** pick_credits（新規開封権）の累積上限。 */
+export const PICK_CREDIT_CAP = 3;
 
 export type CreateBottleState = {
   ok: boolean;
@@ -39,14 +45,28 @@ export async function createBottle(
 
   const now = Date.now();
   const expiresAt = now + BOTTLE_LIFETIME_MS;
+  const todayStart = startOfJstDay(now);
+
+  // 1 日（JST）の投稿上限チェック
+  const todayCountRes = await db.execute({
+    sql: "SELECT COUNT(*) AS n FROM bottles WHERE device_id = ? AND created_at >= ?",
+    args: [deviceId, todayStart],
+  });
+  const todayCount = Number(todayCountRes.rows[0]?.n ?? 0);
+  if (todayCount >= DAILY_BOTTLE_LIMIT) {
+    return {
+      ok: false,
+      error: `1 日に流せるのは ${DAILY_BOTTLE_LIMIT} 本までです。明日また流しましょう。`,
+    };
+  }
 
   await db.execute({
     sql: `INSERT INTO devices (device_id, pick_credits, created_at, last_seen_at)
           VALUES (?, 1, ?, ?)
           ON CONFLICT(device_id) DO UPDATE SET
             last_seen_at = excluded.last_seen_at,
-            pick_credits = devices.pick_credits + 1`,
-    args: [deviceId, now, now],
+            pick_credits = MIN(devices.pick_credits + 1, ?)`,
+    args: [deviceId, now, now, PICK_CREDIT_CAP],
   });
 
   const bottleId = crypto.randomUUID();
@@ -67,9 +87,18 @@ export type PickResult =
       reason: "owner" | "already" | "fresh";
       bottle: { youtube_id: string; comment: string };
       cost: 0 | 1;
-      remaining: number;
+      openableRemaining: number;
     }
-  | { ok: false; error: string; remaining?: number };
+  | { ok: false; error: string; openableRemaining?: number };
+
+export type SeaBottleAccess = "owner" | "replay" | "new" | "locked";
+
+export type PickUiState = {
+  /** 新規開封（クレジット消費）できる本数 = min(ピック権, 海上の未開封他者ボトル数) */
+  openableCount: number;
+  pickCredits: number;
+  access: Record<string, SeaBottleAccess>;
+};
 
 async function getCredits(deviceId: string): Promise<number> {
   const res = await db.execute({
@@ -77,6 +106,91 @@ async function getCredits(deviceId: string): Promise<number> {
     args: [deviceId],
   });
   return Number(res.rows[0]?.pick_credits ?? 0);
+}
+
+/** 海上で、自分以外・未ピック・有効なボトル数 */
+async function countNewOpenableOnSea(deviceId: string): Promise<number> {
+  const now = Date.now();
+  const res = await db.execute({
+    sql: `SELECT COUNT(*) AS cnt
+            FROM bottles b
+           WHERE b.is_archived = 0
+             AND b.status = 'active'
+             AND b.expires_at > ?
+             AND b.device_id != ?
+             AND NOT EXISTS (
+               SELECT 1 FROM picks p
+                WHERE p.bottle_id = b.id AND p.picker_device_id = ?
+             )`,
+    args: [now, deviceId, deviceId],
+  });
+  return Number(res.rows[0]?.cnt ?? 0);
+}
+
+async function getOpenableCount(deviceId: string): Promise<number> {
+  const pickCredits = await getCredits(deviceId);
+  if (pickCredits < 1) return 0;
+  const eligibleOnSea = await countNewOpenableOnSea(deviceId);
+  return Math.min(pickCredits, eligibleOnSea);
+}
+
+export async function getPickUiState(deviceId: string, bottleIds: string[]): Promise<PickUiState> {
+  if (!DEVICE_ID_RE.test(deviceId)) {
+    return { openableCount: 0, pickCredits: 0, access: {} };
+  }
+
+  const pickCredits = await getCredits(deviceId);
+  const openableCount = await getOpenableCount(deviceId);
+  const access: Record<string, SeaBottleAccess> = {};
+
+  if (bottleIds.length === 0) {
+    return { openableCount, pickCredits, access };
+  }
+
+  const now = Date.now();
+  const placeholders = bottleIds.map(() => "?").join(", ");
+  const res = await db.execute({
+    sql: `SELECT b.id, b.device_id,
+            EXISTS (
+              SELECT 1 FROM picks p
+               WHERE p.bottle_id = b.id AND p.picker_device_id = ?
+            ) AS already_picked
+            FROM bottles b
+           WHERE b.id IN (${placeholders})
+             AND b.is_archived = 0
+             AND b.status = 'active'
+             AND b.expires_at > ?`,
+    args: [deviceId, ...bottleIds, now],
+  });
+
+  const rowById = new Map(
+    res.rows.map((row) => [
+      String(row.id),
+      {
+        owner: String(row.device_id) === deviceId,
+        alreadyPicked: Number(row.already_picked) === 1,
+      },
+    ]),
+  );
+
+  for (const id of bottleIds) {
+    const row = rowById.get(id);
+    if (!row) {
+      access[id] = "locked";
+      continue;
+    }
+    if (row.owner) {
+      access[id] = "owner";
+    } else if (row.alreadyPicked) {
+      access[id] = "replay";
+    } else if (openableCount > 0) {
+      access[id] = "new";
+    } else {
+      access[id] = "locked";
+    }
+  }
+
+  return { openableCount, pickCredits, access };
 }
 
 export async function pickBottle(deviceId: string, bottleId: string): Promise<PickResult> {
@@ -107,9 +221,11 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     comment: String(row.comment),
   };
 
+  const openableRemaining = () => getOpenableCount(deviceId);
+
   // 自分のボトル → 無料
   if (owner === deviceId) {
-    return { ok: true, reason: "owner", bottle: detail, cost: 0, remaining: await getCredits(deviceId) };
+    return { ok: true, reason: "owner", bottle: detail, cost: 0, openableRemaining: await openableRemaining() };
   }
 
   // 既にピック済み → 無料で再開封
@@ -118,26 +234,51 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     args: [bottleId, deviceId],
   });
   if (already.rows.length > 0) {
-    return { ok: true, reason: "already", bottle: detail, cost: 0, remaining: await getCredits(deviceId) };
+    return { ok: true, reason: "already", bottle: detail, cost: 0, openableRemaining: await openableRemaining() };
   }
 
-  // 新規ピック → credit 必要
+  // 新規開封 → ピック権必須（UI だけでなくサーバーでも拒否）
   const credits = await getCredits(deviceId);
   if (credits < 1) {
     return {
       ok: false,
-      error: "ボトルを拾うには、まず自分で 1 本流す必要があります。",
-      remaining: credits,
+      error: "新規で開封できるボトルはありません。まず 1 本流して開封権を得てください。",
+      openableRemaining: 0,
     };
   }
 
   const pickId = crypto.randomUUID();
   const now = Date.now();
 
-  // credit 消費が成立した場合のみ pick を確定させる。
-  // CHECK 条件付き UPDATE の rowsAffected を見て手動でコミット/ロールバック。
+  // クレジット消費・二重ピック・期限切れを同一トランザクションで検証
   const tx = await db.transaction("write");
   try {
+    const live = await tx.execute({
+      sql: `SELECT device_id, is_archived, status, expires_at
+              FROM bottles WHERE id = ? LIMIT 1`,
+      args: [bottleId],
+    });
+    const liveRow = live.rows[0];
+    if (
+      !liveRow ||
+      String(liveRow.device_id) === deviceId ||
+      Number(liveRow.is_archived) === 1 ||
+      String(liveRow.status) !== "active" ||
+      Number(liveRow.expires_at) <= now
+    ) {
+      await tx.rollback();
+      return { ok: false, error: "このボトルは新規で開封できません。", openableRemaining: await openableRemaining() };
+    }
+
+    const dup = await tx.execute({
+      sql: "SELECT 1 FROM picks WHERE bottle_id = ? AND picker_device_id = ? LIMIT 1",
+      args: [bottleId, deviceId],
+    });
+    if (dup.rows.length > 0) {
+      await tx.rollback();
+      return { ok: true, reason: "already", bottle: detail, cost: 0, openableRemaining: await openableRemaining() };
+    }
+
     const upd = await tx.execute({
       sql: "UPDATE devices SET pick_credits = pick_credits - 1 WHERE device_id = ? AND pick_credits >= 1",
       args: [deviceId],
@@ -146,10 +287,11 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
       await tx.rollback();
       return {
         ok: false,
-        error: "ボトルを拾うには、まず自分で 1 本流す必要があります。",
-        remaining: await getCredits(deviceId),
+        error: "新規で開封できるボトルはありません。まず 1 本流して開封権を得てください。",
+        openableRemaining: 0,
       };
     }
+
     await tx.execute({
       sql: "INSERT INTO picks (id, bottle_id, picker_device_id, picked_at) VALUES (?, ?, ?, ?)",
       args: [pickId, bottleId, deviceId, now],
@@ -165,10 +307,13 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
   }
 
   revalidatePath("/");
-  return { ok: true, reason: "fresh", bottle: detail, cost: 1, remaining: credits - 1 };
+  return { ok: true, reason: "fresh", bottle: detail, cost: 1, openableRemaining: await openableRemaining() };
 }
 
-export async function getDeviceState(deviceId: string): Promise<{ credits: number }> {
-  if (!DEVICE_ID_RE.test(deviceId)) return { credits: 0 };
-  return { credits: await getCredits(deviceId) };
+/** @deprecated getPickUiState を利用 */
+export async function getDeviceState(deviceId: string): Promise<{ credits: number; openableCount: number }> {
+  if (!DEVICE_ID_RE.test(deviceId)) return { credits: 0, openableCount: 0 };
+  const pickCredits = await getCredits(deviceId);
+  const openableCount = await getOpenableCount(deviceId);
+  return { credits: pickCredits, openableCount };
 }

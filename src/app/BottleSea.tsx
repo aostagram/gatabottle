@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { getDeviceState, pickBottle, type PickResult } from "@/lib/actions";
+import { getPickUiState, pickBottle, type PickResult, type SeaBottleAccess } from "@/lib/actions";
 import { getOrCreateDeviceId } from "@/lib/device-id";
 import { BottleModal } from "./BottleModal";
 
@@ -25,29 +25,53 @@ function layout(bottles: SeaBottle[]): BottleLayout[] {
   });
 }
 
+function canTapBottle(access: SeaBottleAccess | undefined, openableCount: number): boolean {
+  if (!access || access === "locked") return false;
+  if (access === "new" && openableCount < 1) return false;
+  return true;
+}
+
 export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   const laid = useMemo(() => layout(bottles), [bottles]);
+  const bottleIds = useMemo(() => bottles.map((b) => b.id), [bottles]);
   const [deviceId, setDeviceId] = useState("");
-  const [credits, setCredits] = useState<number | null>(null);
+  const [openableCount, setOpenableCount] = useState<number | null>(null);
+  const [accessMap, setAccessMap] = useState<Record<string, SeaBottleAccess>>({});
   const [result, setResult] = useState<PickResult | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     const id = getOrCreateDeviceId();
     setDeviceId(id);
-    getDeviceState(id).then((s) => setCredits(s.credits));
   }, []);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    getPickUiState(deviceId, bottleIds).then((s) => {
+      setOpenableCount(s.openableCount);
+      setAccessMap(s.access);
+    });
+  }, [deviceId, bottleIds]);
+
+  function refreshPickState(id: string, ids: string[]) {
+    getPickUiState(id, ids).then((s) => {
+      setOpenableCount(s.openableCount);
+      setAccessMap(s.access);
+    });
+  }
 
   function handlePick(bottleId: string) {
     if (!deviceId || pending) return;
+    const access = accessMap[bottleId];
+    if (!canTapBottle(access, openableCount ?? 0)) return;
+
     startTransition(async () => {
       const r = await pickBottle(deviceId, bottleId);
       setResult(r);
-      if (r.ok) {
-        setCredits(r.remaining);
-      } else if (typeof r.remaining === "number") {
-        setCredits(r.remaining);
+      if (typeof r.openableRemaining === "number") {
+        setOpenableCount(r.openableRemaining);
       }
+      refreshPickState(deviceId, bottleIds);
     });
   }
 
@@ -55,11 +79,11 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
     <>
       {/* ピック権 HUD */}
       <div className="pointer-events-auto absolute right-4 top-4 z-20 rounded-full bg-sand/85 px-4 py-2 text-xs text-ink/80 shadow-md backdrop-blur">
-        {credits === null
+        {openableCount === null
           ? "🍾 …"
-          : credits > 0
-            ? `🍾 拾える残り ${credits} 本`
-            : "🍾 まずは 1 本流そう"}
+          : openableCount > 0
+            ? `🍾 開封可能 ${openableCount} 本`
+            : "🍾 開封可能 0 本"}
       </div>
 
       {/* 流れるボトル */}
@@ -74,13 +98,24 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
           aria-label="海面に流れるボトル"
           className="pointer-events-none absolute inset-0 z-[5] overflow-hidden"
         >
-          {laid.map((b) => (
+          {laid.map((b) => {
+            const access = accessMap[b.id];
+            const tappable = canTapBottle(access, openableCount ?? 0);
+            return (
             <button
               key={b.id}
               type="button"
-              disabled={pending || !deviceId}
+              disabled={pending || !deviceId || !tappable}
               onClick={() => handlePick(b.id)}
-              aria-label="ボトルを開ける"
+              aria-label={
+                access === "owner"
+                  ? "自分のボトルを開ける"
+                  : access === "replay"
+                    ? "もう一度開封する"
+                    : access === "new"
+                      ? "ボトルを新規開封する"
+                      : "開封できません"
+              }
               className="drift pointer-events-auto absolute -left-16 select-none text-4xl sm:text-5xl transition hover:drop-shadow-[0_0_12px_rgba(255,180,120,0.6)] focus:outline-none focus-visible:drop-shadow-[0_0_12px_rgba(255,180,120,0.9)] disabled:opacity-60"
               style={{
                 top: `${b.topPct}%`,
@@ -91,7 +126,8 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
             >
               🍾
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -85,12 +85,20 @@ export default async function Home() {
 
       {/* CTA */}
       <footer className="relative z-10 w-full px-6 pb-10 pt-2 text-center">
-        <Link
-          href="/post"
-          className="inline-block rounded-full bg-ribbon px-7 py-3 text-sm font-semibold tracking-widest text-sand shadow-lg transition hover:bg-ribbon/90"
-        >
-          🍾 ボトルを流す
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/post"
+            className="inline-block rounded-full bg-ribbon px-7 py-3 text-sm font-semibold tracking-widest text-sand shadow-lg transition hover:bg-ribbon/90"
+          >
+            🍾 ボトルを流す
+          </Link>
+          <Link
+            href="/ranking"
+            className="inline-block rounded-full bg-sand/80 px-6 py-3 text-sm font-semibold tracking-widest text-ink shadow-md backdrop-blur transition hover:bg-sand"
+          >
+            📜 先月のベスト3
+          </Link>
+        </div>
         <p className="mt-4 text-xs tracking-widest text-ink/60">
           v0.1 · gatabottle.com
         </p>

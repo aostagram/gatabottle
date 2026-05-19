@@ -77,7 +77,7 @@ export function BottleModal({
               <p className="text-xs tracking-[0.4em] text-ink/60">
                 {REASON_LABEL[result.reason]}
                 {result.cost === 1 && (
-                  <span className="ml-2">· 残ピック {result.remaining}</span>
+                  <span className="ml-2">· 開封可能 {result.openableRemaining} 本</span>
                 )}
               </p>
               <p className="mt-2 text-base sm:text-lg text-ink leading-relaxed">
