@@ -10,10 +10,10 @@ const BOTTLE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMENT_MAX_LENGTH = 140;
 const DEVICE_ID_RE = /^[0-9a-f-]{8,64}$/i;
 
-/** 1 device が 1 日（JST 基準）に流せるボトルの上限。 */
-export const DAILY_BOTTLE_LIMIT = 3;
-/** pick_credits（新規開封権）の累積上限。 */
-export const PICK_CREDIT_CAP = 3;
+// "use server" ファイルは async function 以外を export できないため、定数は非 export。
+// 値を他から参照したい場合は別ファイル（例: src/lib/limits.ts）に移すこと。
+const DAILY_BOTTLE_LIMIT = 3;
+const PICK_CREDIT_CAP = 3;
 
 export type CreateBottleState = {
   ok: boolean;
