@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { BottleSea, type SeaBottle } from "./BottleSea";
+import { WaveAudio } from "./WaveAudio";
 
 // 海面のボトル一覧は投稿ごとに変わるので、リクエストごとに SSR する。
 // prerender されると seed 後の DB 変更が反映されない。
@@ -41,6 +42,11 @@ export default async function Home() {
             }}
           />
         ))}
+      </div>
+
+      {/* 波の音トグル（左上） */}
+      <div className="absolute left-4 top-4 z-20">
+        <WaveAudio />
       </div>
 
       {/* 流れるボトル */}
