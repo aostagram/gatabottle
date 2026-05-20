@@ -101,6 +101,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
           {laid.map((b) => {
             const access = accessMap[b.id];
             const tappable = canTapBottle(access, openableCount ?? 0);
+            const isRead = access === "replay";
             return (
             <button
               key={b.id}
@@ -111,7 +112,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
                 access === "owner"
                   ? "自分のボトルを開ける"
                   : access === "replay"
-                    ? "もう一度開封する"
+                    ? "開封済みのボトルをもう一度開封する"
                     : access === "new"
                       ? "ボトルを新規開封する"
                       : "開封できません"
@@ -124,7 +125,17 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
                 ["--bot-scale" as string]: b.scale,
               }}
             >
-              🍾
+              <span className="relative inline-block">
+                <span className={isRead ? "opacity-60" : ""}>🍾</span>
+                {isRead && (
+                  <span
+                    aria-hidden
+                    className="absolute -top-1 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-sand text-[11px] font-bold text-ink shadow ring-2 ring-white"
+                  >
+                    ✓
+                  </span>
+                )}
+              </span>
             </button>
             );
           })}
@@ -134,6 +145,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
       <BottleModal
         result={result}
         pending={pending}
+        deviceId={deviceId}
         onClose={() => setResult(null)}
         postHref={<Link href="/post" className="underline">ボトルを流す</Link>}
       />

@@ -40,3 +40,14 @@ CREATE INDEX IF NOT EXISTS idx_picks_picker ON picks(picker_device_id);
 CREATE INDEX IF NOT EXISTS idx_picks_bottle ON picks(bottle_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_unique ON picks(bottle_id, picker_device_id);
+
+CREATE TABLE IF NOT EXISTS likes (
+  bottle_id   TEXT    NOT NULL,
+  device_id   TEXT    NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (bottle_id, device_id),
+  FOREIGN KEY (bottle_id) REFERENCES bottles(id),
+  FOREIGN KEY (device_id) REFERENCES devices(device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_likes_device ON likes(device_id);

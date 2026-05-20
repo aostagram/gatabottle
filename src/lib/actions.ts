@@ -85,13 +85,19 @@ export type PickResult =
   | {
       ok: true;
       reason: "owner" | "already" | "fresh";
-      bottle: { youtube_id: string; comment: string };
+      bottle: { id: string; youtube_id: string; comment: string };
       cost: 0 | 1;
       openableRemaining: number;
+      liked: boolean;
+      likeCount: number;
     }
   | { ok: false; error: string; openableRemaining?: number };
 
 export type SeaBottleAccess = "owner" | "replay" | "new" | "locked";
+
+export type ToggleLikeResult =
+  | { ok: true; liked: boolean; likeCount: number }
+  | { ok: false; error: string };
 
 export type PickUiState = {
   /**
@@ -182,7 +188,7 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
   }
 
   const bottleRes = await db.execute({
-    sql: `SELECT device_id, youtube_id, comment, is_archived, status, expires_at
+    sql: `SELECT device_id, youtube_id, comment, is_archived, status, expires_at, like_count
             FROM bottles WHERE id = ? LIMIT 1`,
     args: [bottleId],
   });
@@ -200,15 +206,36 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
   }
 
   const detail = {
+    id: bottleId,
     youtube_id: String(row.youtube_id),
     comment: String(row.comment),
   };
 
   const openableRemaining = () => getOpenableCount(deviceId);
 
+  // いいね状態の取得（自分のボトルでは liked は常に false 扱い）
+  async function getLikeState(): Promise<{ liked: boolean; likeCount: number }> {
+    const likedRes = await db.execute({
+      sql: "SELECT 1 FROM likes WHERE bottle_id = ? AND device_id = ? LIMIT 1",
+      args: [bottleId, deviceId],
+    });
+    return {
+      liked: likedRes.rows.length > 0,
+      likeCount: Number(row.like_count ?? 0),
+    };
+  }
+
   // 自分のボトル → 無料
   if (owner === deviceId) {
-    return { ok: true, reason: "owner", bottle: detail, cost: 0, openableRemaining: await openableRemaining() };
+    return {
+      ok: true,
+      reason: "owner",
+      bottle: detail,
+      cost: 0,
+      openableRemaining: await openableRemaining(),
+      liked: false,
+      likeCount: Number(row.like_count ?? 0),
+    };
   }
 
   // 他人のボトルは「新規」も「再開封」もピック権を 1 消費する。
@@ -283,13 +310,78 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
   }
 
   revalidatePath("/");
+  const likeState = await getLikeState();
   return {
     ok: true,
     reason: isReplay ? "already" : "fresh",
     bottle: detail,
     cost: 1,
     openableRemaining: credits - 1,
+    liked: likeState.liked,
+    likeCount: likeState.likeCount,
   };
+}
+
+export async function toggleLike(deviceId: string, bottleId: string): Promise<ToggleLikeResult> {
+  if (!DEVICE_ID_RE.test(deviceId)) {
+    return { ok: false, error: "端末IDが取得できませんでした。ページを再読み込みしてください。" };
+  }
+
+  const res = await db.execute({
+    sql: "SELECT device_id, is_archived, status FROM bottles WHERE id = ? LIMIT 1",
+    args: [bottleId],
+  });
+  const row = res.rows[0];
+  if (!row) return { ok: false, error: "このボトルは見つかりません。" };
+
+  const owner = String(row.device_id);
+  if (owner === deviceId) {
+    return { ok: false, error: "自分のボトルにはいいねできません。" };
+  }
+  if (Number(row.is_archived) === 1 || String(row.status) !== "active") {
+    return { ok: false, error: "このボトルはもういいねできません。" };
+  }
+
+  const existing = await db.execute({
+    sql: "SELECT 1 FROM likes WHERE bottle_id = ? AND device_id = ? LIMIT 1",
+    args: [bottleId, deviceId],
+  });
+  const alreadyLiked = existing.rows.length > 0;
+  const now = Date.now();
+
+  const tx = await db.transaction("write");
+  try {
+    if (alreadyLiked) {
+      await tx.execute({
+        sql: "DELETE FROM likes WHERE bottle_id = ? AND device_id = ?",
+        args: [bottleId, deviceId],
+      });
+      await tx.execute({
+        sql: "UPDATE bottles SET like_count = MAX(0, like_count - 1) WHERE id = ?",
+        args: [bottleId],
+      });
+    } else {
+      await tx.execute({
+        sql: "INSERT INTO likes(bottle_id, device_id, created_at) VALUES (?, ?, ?)",
+        args: [bottleId, deviceId, now],
+      });
+      await tx.execute({
+        sql: "UPDATE bottles SET like_count = like_count + 1 WHERE id = ?",
+        args: [bottleId],
+      });
+    }
+    const cntRes = await tx.execute({
+      sql: "SELECT like_count FROM bottles WHERE id = ?",
+      args: [bottleId],
+    });
+    const likeCount = Number(cntRes.rows[0]?.like_count ?? 0);
+    await tx.commit();
+    revalidatePath("/");
+    return { ok: true, liked: !alreadyLiked, likeCount };
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
 }
 
 /** @deprecated getPickUiState を利用 */

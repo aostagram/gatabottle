@@ -13,17 +13,17 @@ export const dynamic = "force-dynamic";
 type RankRow = {
   youtube_id: string;
   comment: string;
-  pick_count: number;
+  like_count: number;
 };
 
 async function getMonthlyTop3(): Promise<{ rows: RankRow[]; label: string }> {
   const { start, end, label } = previousJstMonthRange();
   const res = await db.execute({
-    sql: `SELECT youtube_id, comment, pick_count
+    sql: `SELECT youtube_id, comment, like_count
             FROM bottles
            WHERE created_at >= ?
              AND created_at <  ?
-        ORDER BY pick_count DESC, created_at DESC
+        ORDER BY like_count DESC, created_at DESC
            LIMIT 3`,
     args: [start, end],
   });
@@ -32,7 +32,7 @@ async function getMonthlyTop3(): Promise<{ rows: RankRow[]; label: string }> {
     rows: res.rows.map((r) => ({
       youtube_id: String(r.youtube_id),
       comment: String(r.comment),
-      pick_count: Number(r.pick_count ?? 0),
+      like_count: Number(r.like_count ?? 0),
     })),
   };
 }
@@ -49,7 +49,7 @@ export default async function RankingPage() {
         <h1 className="text-3xl sm:text-4xl font-semibold text-ink">
           {label}のベスト3
         </h1>
-        <p className="mt-3 text-xs text-ink/70">拾われた数の多いボトル</p>
+        <p className="mt-3 text-xs text-ink/70">いいね💕の多かったボトル</p>
       </header>
 
       {rows.length === 0 ? (
@@ -69,7 +69,7 @@ export default async function RankingPage() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-2xl">{MEDAL[i] ?? "🍾"}</span>
                 <span className="text-xs tracking-widest text-ink/70">
-                  拾われ {r.pick_count}
+                  💕 {r.like_count}
                 </span>
               </div>
               <p className="text-sm sm:text-base text-ink mb-3 leading-relaxed">

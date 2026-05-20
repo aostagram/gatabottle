@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { youtubeEmbedUrl } from "@/lib/youtube";
-import type { PickResult } from "@/lib/actions";
+import { toggleLike, type PickResult } from "@/lib/actions";
 
 const REASON_LABEL: Record<"owner" | "already" | "fresh", string> = {
   owner: "あなたのボトル",
@@ -10,16 +10,77 @@ const REASON_LABEL: Record<"owner" | "already" | "fresh", string> = {
   fresh: "拾いました",
 };
 
+function LikeRow({
+  deviceId,
+  bottleId,
+  initialLiked,
+  initialCount,
+}: {
+  deviceId: string;
+  bottleId: string;
+  initialLiked: boolean;
+  initialCount: number;
+}) {
+  const [liked, setLiked] = useState(initialLiked);
+  const [count, setCount] = useState(initialCount);
+  const [pending, startTransition] = useTransition();
+
+  // 別ボトルを開いたときに初期値で再同期
+  useEffect(() => {
+    setLiked(initialLiked);
+    setCount(initialCount);
+  }, [bottleId, initialLiked, initialCount]);
+
+  function click() {
+    if (pending) return;
+    const next = !liked;
+    // 楽観的更新
+    setLiked(next);
+    setCount((c) => Math.max(0, c + (next ? 1 : -1)));
+
+    startTransition(async () => {
+      const res = await toggleLike(deviceId, bottleId);
+      if (res.ok) {
+        setLiked(res.liked);
+        setCount(res.likeCount);
+      } else {
+        // ロールバック
+        setLiked(initialLiked);
+        setCount(initialCount);
+      }
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={pending}
+      aria-pressed={liked}
+      aria-label={liked ? "いいねを取り消す" : "いいねする"}
+      className="inline-flex items-center gap-2 rounded-full bg-sand px-5 py-2 text-sm font-semibold text-ink shadow ring-1 ring-ink/10 transition hover:bg-sand/80 disabled:opacity-50"
+    >
+      <span aria-hidden className="text-xl leading-none">
+        {liked ? "💕" : "♡"}
+      </span>
+      <span>{liked ? "いいね済" : "いいね"}</span>
+      <span className="text-ink/70">{count}</span>
+    </button>
+  );
+}
+
 export function BottleModal({
   result,
   pending,
   onClose,
   postHref,
+  deviceId,
 }: {
   result: PickResult | null;
   pending: boolean;
   onClose: () => void;
   postHref?: ReactNode;
+  deviceId: string;
 }) {
   const visible = pending || result !== null;
 
@@ -95,6 +156,21 @@ export function BottleModal({
                 className="h-full w-full"
               />
             </div>
+
+            {result.reason !== "owner" && deviceId ? (
+              <div className="mt-5 flex justify-center">
+                <LikeRow
+                  deviceId={deviceId}
+                  bottleId={result.bottle.id}
+                  initialLiked={result.liked}
+                  initialCount={result.likeCount}
+                />
+              </div>
+            ) : result.reason === "owner" && result.likeCount > 0 ? (
+              <p className="mt-5 text-center text-sm text-ink/70">
+                💕 みんなから {result.likeCount} いいね
+              </p>
+            ) : null}
           </>
         )}
       </div>
