@@ -7,6 +7,9 @@ export const metadata = {
   title: "先月のベスト3 | 潟ボトル",
 };
 
+// 月またぎや pick_count 変動に追従するため、リクエストごとに SSR する。
+export const dynamic = "force-dynamic";
+
 type RankRow = {
   youtube_id: string;
   comment: string;

@@ -2,6 +2,10 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { BottleSea, type SeaBottle } from "./BottleSea";
 
+// 海面のボトル一覧は投稿ごとに変わるので、リクエストごとに SSR する。
+// prerender されると seed 後の DB 変更が反映されない。
+export const dynamic = "force-dynamic";
+
 async function getActiveBottles(): Promise<SeaBottle[]> {
   const now = Date.now();
   const result = await db.execute({
