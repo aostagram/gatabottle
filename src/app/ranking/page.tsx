@@ -1,10 +1,21 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { previousJstMonthRange } from "@/lib/time";
 import { youtubeEmbedUrl } from "@/lib/youtube";
 
-export const metadata = {
-  title: "先月のベスト3 | 潟ボトル",
+export const metadata: Metadata = {
+  title: "先月のベスト3 – 人気の音楽ランキング",
+  description:
+    "新潟発の音楽交換アプリ「潟ボトル」で、先月いちばん拾われた音楽 TOP3。新潟の音楽好きが選んだ、ボトルに込められた一曲をシェア。",
+  alternates: { canonical: "/ranking" },
+  openGraph: {
+    title: "先月のベスト3 – 人気の音楽ランキング | 潟ボトル",
+    description:
+      "新潟の音楽交換コミュニティ「潟ボトル」の先月の人気曲 TOP3。",
+    url: "/ranking",
+    type: "website",
+  },
 };
 
 // 月またぎや pick_count 変動に追従するため、リクエストごとに SSR する。

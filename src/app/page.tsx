@@ -1,11 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { BottleSea, type SeaBottle } from "./BottleSea";
+import { HelpButton } from "./HelpButton";
 import { WaveAudio } from "./WaveAudio";
 
 // 海面のボトル一覧は投稿ごとに変わるので、リクエストごとに SSR する。
 // prerender されると seed 後の DB 変更が反映されない。
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 async function getActiveBottles(): Promise<SeaBottle[]> {
   const now = Date.now();
@@ -44,9 +50,10 @@ export default async function Home() {
         ))}
       </div>
 
-      {/* 波の音トグル（左上） */}
-      <div className="absolute left-4 top-4 z-20">
+      {/* 左上のツール群（波の音 + 使い方） */}
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
         <WaveAudio />
+        <HelpButton />
       </div>
 
       {/* 流れるボトル */}
@@ -62,6 +69,9 @@ export default async function Home() {
         </h1>
         <p className="mt-2 text-xl sm:text-2xl text-ink/80 tracking-widest">
           GATA BOTTLE
+        </p>
+        <p className="mt-3 text-xs sm:text-sm tracking-[0.3em] text-ink/65">
+          新潟発・音楽交換ボトルメール
         </p>
         <p className="mt-6 max-w-md mx-auto text-base sm:text-lg leading-relaxed text-ink/85">
           新潟の海に、音楽をボトルに詰めて流す。
@@ -111,6 +121,11 @@ export default async function Home() {
         </div>
         <p className="mt-4 text-xs tracking-widest text-ink/60">
           v0.1 · gatabottle.com
+        </p>
+        <p className="mt-3 max-w-lg mx-auto text-[11px] leading-relaxed text-ink/55">
+          潟ボトルは、新潟から音楽をシェア・交換するためのアプリです。
+          YouTube リンクをボトルに詰めて海に流すと、知らない誰かが拾って聴いてくれます。
+          新潟の音楽好きが集う、偶然の音楽出会いをつくるコミュニティ。
         </p>
       </footer>
     </main>

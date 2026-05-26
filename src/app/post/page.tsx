@@ -1,7 +1,18 @@
+import type { Metadata } from "next";
 import { PostForm } from "./PostForm";
 
-export const metadata = {
-  title: "ボトルを流す | 潟ボトル",
+export const metadata: Metadata = {
+  title: "ボトルを流す – YouTubeで音楽をシェア",
+  description:
+    "新潟発の音楽交換アプリ「潟ボトル」に音楽を投稿。YouTubeリンクと一言コメントを添えるだけで、あなたの一曲が新潟の海に流れ、誰かに拾われます。",
+  alternates: { canonical: "/post" },
+  openGraph: {
+    title: "ボトルを流す – YouTubeで音楽をシェア | 潟ボトル",
+    description:
+      "YouTubeリンクで音楽をボトルに詰めて流そう。新潟の音楽交換コミュニティ「潟ボトル」。",
+    url: "/post",
+    type: "website",
+  },
 };
 
 export default function PostPage() {
