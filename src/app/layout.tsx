@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Klee_One } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 
 const klee = Klee_One({
@@ -131,6 +132,7 @@ export default function RootLayout({
         />
         {children}
       </body>
+      <GoogleAnalytics gaId="G-F5N88G1G26" />
     </html>
   );
 }
