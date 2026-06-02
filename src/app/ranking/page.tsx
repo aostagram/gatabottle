@@ -1,24 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { previousJstMonthRange } from "@/lib/time";
+import { previousJstWeekRange } from "@/lib/time";
 import { youtubeEmbedUrl } from "@/lib/youtube";
 
 export const metadata: Metadata = {
-  title: "先月のベスト3 – 人気の音楽ランキング",
+  title: "先週のベスト3 – 人気の音楽ランキング",
   description:
-    "新潟発の音楽交換アプリ「潟ボトル」で、先月いちばん拾われた音楽 TOP3。新潟の音楽好きが選んだ、ボトルに込められた一曲をシェア。",
+    "新潟発の音楽交換アプリ「潟ボトル」で、先週いちばん人気だった音楽 TOP3。新潟の音楽好きが選んだ、ボトルに込められた一曲をシェア。",
   alternates: { canonical: "/ranking" },
   openGraph: {
-    title: "先月のベスト3 – 人気の音楽ランキング | 潟ボトル",
+    title: "先週のベスト3 – 人気の音楽ランキング | 潟ボトル",
     description:
-      "新潟の音楽交換コミュニティ「潟ボトル」の先月の人気曲 TOP3。",
+      "新潟の音楽交換コミュニティ「潟ボトル」の先週の人気曲 TOP3。",
     url: "/ranking",
     type: "website",
   },
 };
 
-// 月またぎや pick_count 変動に追従するため、リクエストごとに SSR する。
+// 週またぎや like_count 変動に追従するため、リクエストごとに SSR する。
 export const dynamic = "force-dynamic";
 
 type RankRow = {
@@ -27,8 +27,8 @@ type RankRow = {
   like_count: number;
 };
 
-async function getMonthlyTop3(): Promise<{ rows: RankRow[]; label: string }> {
-  const { start, end, label } = previousJstMonthRange();
+async function getWeeklyTop3(): Promise<{ rows: RankRow[]; label: string }> {
+  const { start, end, label } = previousJstWeekRange();
   const res = await db.execute({
     sql: `SELECT youtube_id, comment, like_count
             FROM bottles
@@ -51,15 +51,16 @@ async function getMonthlyTop3(): Promise<{ rows: RankRow[]; label: string }> {
 const MEDAL = ["🥇", "🥈", "🥉"];
 
 export default async function RankingPage() {
-  const { rows, label } = await getMonthlyTop3();
+  const { rows, label } = await getWeeklyTop3();
 
   return (
     <main className="relative flex-1 flex flex-col items-center overflow-hidden px-6 py-12">
       <header className="relative z-10 text-center mb-10">
-        <p className="text-sm tracking-[0.4em] text-ink/70 mb-2">MONTHLY TOP 3</p>
+        <p className="text-sm tracking-[0.4em] text-ink/70 mb-2">WEEKLY TOP 3</p>
         <h1 className="text-3xl sm:text-4xl font-semibold text-ink">
-          {label}のベスト3
+          先週のベスト3
         </h1>
+        <p className="mt-2 text-sm text-ink/80">{label}</p>
         <p className="mt-3 text-xs text-ink/70">いいね💕の多かったボトル</p>
       </header>
 
@@ -67,7 +68,7 @@ export default async function RankingPage() {
         <div className="relative z-10 max-w-md text-center text-sm text-ink/80 mt-8">
           <p>まだランキングできるボトルがありません。</p>
           <p className="mt-2 text-ink/60">
-            先月の終わりに、海面で拾われた数の多いボトル上位 3 本が並びます。
+            毎週はじめに、先週いいねの多かったボトル上位 3 本が並びます。
           </p>
         </div>
       ) : (

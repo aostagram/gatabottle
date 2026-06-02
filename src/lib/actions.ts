@@ -384,6 +384,39 @@ export async function toggleLike(deviceId: string, bottleId: string): Promise<To
   }
 }
 
+export type OpenedBottle = {
+  bottle_id: string;
+  youtube_id: string;
+  comment: string;
+  picked_at: number;
+};
+
+/**
+ * この端末がこれまで開封した（＝ピックした）ボトルの履歴を新しい順に返す。
+ * picks には「他人のボトルを開けたとき」だけ記録される（自分のボトルは無料開封のため対象外）。
+ * 海面から消えた（期限切れ・アーカイブ）ボトルも履歴としては残す。
+ */
+export async function getOpenedHistory(deviceId: string): Promise<OpenedBottle[]> {
+  if (!DEVICE_ID_RE.test(deviceId)) return [];
+
+  const res = await db.execute({
+    sql: `SELECT b.id AS bottle_id, b.youtube_id, b.comment, p.picked_at
+            FROM picks p
+            JOIN bottles b ON b.id = p.bottle_id
+           WHERE p.picker_device_id = ?
+        ORDER BY p.picked_at DESC
+           LIMIT 100`,
+    args: [deviceId],
+  });
+
+  return res.rows.map((row) => ({
+    bottle_id: String(row.bottle_id),
+    youtube_id: String(row.youtube_id),
+    comment: String(row.comment),
+    picked_at: Number(row.picked_at ?? 0),
+  }));
+}
+
 /** @deprecated getPickUiState を利用 */
 export async function getDeviceState(deviceId: string): Promise<{ credits: number; openableCount: number }> {
   if (!DEVICE_ID_RE.test(deviceId)) return { credits: 0, openableCount: 0 };

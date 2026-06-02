@@ -84,7 +84,7 @@ export function HelpButton() {
                 <span>
                   <strong className="text-ink">💕 気に入ったら、いいね</strong>
                   <br />
-                  音楽が気に入ったら、ハートで応援。先月の人気曲は「先月のベスト3」で見られます。
+                  音楽が気に入ったら、ハートで応援。先週の人気曲は「先週のベスト3」で見られます。
                 </span>
               </li>
               <li className="flex gap-3">

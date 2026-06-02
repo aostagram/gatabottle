@@ -116,7 +116,13 @@ export default async function Home() {
             href="/ranking"
             className="inline-block rounded-full bg-sand/80 px-6 py-3 text-sm font-semibold tracking-widest text-ink shadow-md backdrop-blur transition hover:bg-sand"
           >
-            📜 先月のベスト3
+            📜 先週のベスト3
+          </Link>
+          <Link
+            href="/history"
+            className="inline-block rounded-full bg-sand/80 px-6 py-3 text-sm font-semibold tracking-widest text-ink shadow-md backdrop-blur transition hover:bg-sand"
+          >
+            🎧 開封した曲
           </Link>
         </div>
         <p className="mt-4 text-xs tracking-widest text-ink/60">
