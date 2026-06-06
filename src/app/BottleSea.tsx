@@ -36,9 +36,14 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   const bottleIds = useMemo(() => bottles.map((b) => b.id), [bottles]);
   const [deviceId, setDeviceId] = useState("");
   const [openableCount, setOpenableCount] = useState<number | null>(null);
+  const [exploreUnlocked, setExploreUnlocked] = useState(false);
+  const [exploreRemaining, setExploreRemaining] = useState(0);
+  const [exploreVisibleCount, setExploreVisibleCount] = useState(0);
   const [accessMap, setAccessMap] = useState<Record<string, SeaBottleAccess>>({});
   const [result, setResult] = useState<PickResult | null>(null);
   const [pending, startTransition] = useTransition();
+  // 3 本目を流した直後（/?sea_opened=1）に「海が開かれました」演出を出す。
+  const [showSeaOpened, setShowSeaOpened] = useState(false);
 
   useEffect(() => {
     const id = getOrCreateDeviceId();
@@ -46,9 +51,24 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("sea_opened") === "1") {
+      setShowSeaOpened(true);
+      // 一度見せたら URL から外す（リロードや共有で再表示されないように）。
+      params.delete("sea_opened");
+      const qs = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }
+  }, []);
+
+  useEffect(() => {
     if (!deviceId) return;
     getPickUiState(deviceId, bottleIds).then((s) => {
       setOpenableCount(s.openableCount);
+      setExploreUnlocked(s.exploreUnlocked);
+      setExploreRemaining(s.exploreRemaining);
+      setExploreVisibleCount(s.exploreVisibleCount);
       setAccessMap(s.access);
     });
   }, [deviceId, bottleIds]);
@@ -56,6 +76,9 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   function refreshPickState(id: string, ids: string[]) {
     getPickUiState(id, ids).then((s) => {
       setOpenableCount(s.openableCount);
+      setExploreUnlocked(s.exploreUnlocked);
+      setExploreRemaining(s.exploreRemaining);
+      setExploreVisibleCount(s.exploreVisibleCount);
       setAccessMap(s.access);
     });
   }
@@ -78,13 +101,50 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   return (
     <>
       {/* ピック権 HUD */}
-      <div className="pointer-events-auto absolute right-4 top-4 z-20 rounded-full bg-sand/85 px-4 py-2 text-xs text-ink/80 shadow-md backdrop-blur">
-        {openableCount === null
-          ? "🍾 …"
-          : openableCount > 0
-            ? `🍾 開封可能 ${openableCount} 本`
-            : "🍾 開封可能 0 本"}
+      <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col items-end gap-1">
+        <div className="rounded-full bg-sand/85 px-4 py-2 text-xs text-ink/80 shadow-md backdrop-blur">
+          {openableCount === null ? "🍾 …" : `🍾 開封可能 ${openableCount} 本`}
+        </div>
+        {exploreUnlocked && exploreRemaining > 0 && (
+          <div className="rounded-full bg-ribbon/90 px-4 py-2 text-xs font-semibold text-sand shadow-md backdrop-blur">
+            🌊 探索 のこり {exploreRemaining} 本
+          </div>
+        )}
       </div>
+
+      {/* 3 本目を流した直後の「海が開かれました」演出 */}
+      {showSeaOpened && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="海探索モード解放"
+          className="open-anim pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-ink/55 p-4 backdrop-blur-sm"
+          onClick={() => setShowSeaOpened(false)}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-3xl bg-sand p-7 text-center shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-5xl">🌊</p>
+            <h2 className="mt-3 text-2xl font-semibold text-ink">海が開かれました</h2>
+            <p className="mt-4 text-base text-ink/85">
+              本日探索可能：<span className="text-2xl font-bold text-ribbon">{exploreVisibleCount}</span> 本
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-ink/60">
+              今日だけ、まだ開けていないボトルを追加で探せます。
+              <br />
+              翌日 0:00 にリセットされます。
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowSeaOpened(false)}
+              className="mt-6 w-full rounded-full bg-ribbon px-6 py-3 text-sm font-semibold tracking-widest text-sand shadow-md transition hover:bg-ribbon/90"
+            >
+              海を探索する
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 流れるボトル */}
       {laid.length === 0 ? (

@@ -14,6 +14,8 @@ const DEVICE_ID_RE = /^[0-9a-f-]{8,64}$/i;
 // 値を他から参照したい場合は別ファイル（例: src/lib/limits.ts）に移すこと。
 const DAILY_BOTTLE_LIMIT = 3;
 const PICK_CREDIT_CAP = 3;
+// 3 本目を流すと解放される「海探索モード」で、その日に追加で開封できる本数。
+const EXPLORE_QUOTA = 5;
 
 export type CreateBottleState = {
   ok: boolean;
@@ -60,14 +62,32 @@ export async function createBottle(
     };
   }
 
+  // 今日の何本目か（1〜3）。3 本目だけ挙動が変わる。
+  const postNumber = todayCount + 1;
+  const opensSea = postNumber >= DAILY_BOTTLE_LIMIT; // === 3 本目
+
+  // device 行を用意（last_seen 更新）。クレジット/探索枠は本数に応じて別途更新する。
   await db.execute({
     sql: `INSERT INTO devices (device_id, pick_credits, created_at, last_seen_at)
-          VALUES (?, 1, ?, ?)
+          VALUES (?, 0, ?, ?)
           ON CONFLICT(device_id) DO UPDATE SET
-            last_seen_at = excluded.last_seen_at,
-            pick_credits = MIN(devices.pick_credits + 1, ?)`,
-    args: [deviceId, now, now, PICK_CREDIT_CAP],
+            last_seen_at = excluded.last_seen_at`,
+    args: [deviceId, now, now],
   });
+
+  if (opensSea) {
+    // 3 本目 → 通常の開封権は付与せず、当日限定の「海探索モード」を解放する。
+    await db.execute({
+      sql: "UPDATE devices SET explore_unlocked_day = ?, explore_used = 0 WHERE device_id = ?",
+      args: [todayStart, deviceId],
+    });
+  } else {
+    // 1・2 本目 → これまで通り開封権を 1 つ付与（上限あり）。
+    await db.execute({
+      sql: "UPDATE devices SET pick_credits = MIN(pick_credits + 1, ?) WHERE device_id = ?",
+      args: [PICK_CREDIT_CAP, deviceId],
+    });
+  }
 
   const bottleId = crypto.randomUUID();
   await db.execute({
@@ -78,7 +98,7 @@ export async function createBottle(
   });
 
   revalidatePath("/");
-  redirect("/?just_posted=1");
+  redirect(opensSea ? "/?sea_opened=1" : "/?just_posted=1");
 }
 
 export type PickResult =
@@ -101,12 +121,20 @@ export type ToggleLikeResult =
 
 export type PickUiState = {
   /**
-   * 開封可能本数 = 残ピック権。
-   * 「他人のボトル」を開けるとき（新規 / 再開封の両方）に 1 消費される。
-   * 自分のボトルは無料で開けるので含まない。
+   * 開封可能本数 = 残ピック権 + 残探索枠。
+   * 「他人のボトル」を開けるとき消費される（自分のボトルは無料なので含まない）。
+   * - 新規（未開封）のボトル: 探索枠 → ピック権 の順に消費。
+   * - 再開封のボトル: ピック権のみ消費（探索の対象外）。
    */
   openableCount: number;
+  /** 永続クレジット（1・2 本目で増える）。再開封はこれだけを使う。 */
   pickCredits: number;
+  /** 今日 3 本目を流して海探索モードが有効か。 */
+  exploreUnlocked: boolean;
+  /** 今日まだ残っている探索枠（最大 5、翌日 0:00 にリセット）。 */
+  exploreRemaining: number;
+  /** 実際に今日探索できる本数 = min(残探索枠, 未開封ボトル数)。UI の「本日探索可能：◯本」。 */
+  exploreVisibleCount: number;
   access: Record<string, SeaBottleAccess>;
 };
 
@@ -118,25 +146,91 @@ async function getCredits(deviceId: string): Promise<number> {
   return Number(res.rows[0]?.pick_credits ?? 0);
 }
 
-/** 「開封可能本数」= ピック権そのまま。再開封でも消費されるので海上カウントには依存しない。 */
+type DeviceOpenState = {
+  pickCredits: number;
+  exploreUnlocked: boolean;
+  exploreRemaining: number;
+};
+
+/**
+ * device の開封リソースをまとめて取得する。
+ * 探索枠は「解放日が今日 0:00(JST) と一致するとき」だけ有効。
+ * 日付が変われば自動的に exploreRemaining = 0 となり、翌日 0:00 リセットを実現する。
+ */
+async function getDeviceOpenState(
+  deviceId: string,
+  now: number = Date.now(),
+): Promise<DeviceOpenState> {
+  const res = await db.execute({
+    sql: "SELECT pick_credits, explore_unlocked_day, explore_used FROM devices WHERE device_id = ?",
+    args: [deviceId],
+  });
+  const row = res.rows[0];
+  const pickCredits = Number(row?.pick_credits ?? 0);
+  const unlockedDay = Number(row?.explore_unlocked_day ?? 0);
+  const used = Number(row?.explore_used ?? 0);
+  const exploreUnlocked = unlockedDay !== 0 && unlockedDay === startOfJstDay(now);
+  const exploreRemaining = exploreUnlocked ? Math.max(0, EXPLORE_QUOTA - used) : 0;
+  return { pickCredits, exploreUnlocked, exploreRemaining };
+}
+
+/** 「開封可能本数」= 残ピック権 + 残探索枠。再開封でも消費されるので海上カウントには依存しない。 */
 async function getOpenableCount(deviceId: string): Promise<number> {
-  return await getCredits(deviceId);
+  const s = await getDeviceOpenState(deviceId);
+  return s.pickCredits + s.exploreRemaining;
+}
+
+/**
+ * この端末がまだ開封していない、開封対象になり得るボトルの本数。
+ * 自分のボトル・既開封・期限切れ/アーカイブは除外する（探索モードの表示本数に使う）。
+ */
+async function countAvailableUnopened(deviceId: string, now: number): Promise<number> {
+  const res = await db.execute({
+    sql: `SELECT COUNT(*) AS n
+            FROM bottles b
+           WHERE b.is_archived = 0
+             AND b.status = 'active'
+             AND b.expires_at > ?
+             AND b.device_id != ?
+             AND NOT EXISTS (
+               SELECT 1 FROM picks p
+                WHERE p.bottle_id = b.id AND p.picker_device_id = ?
+             )`,
+    args: [now, deviceId, deviceId],
+  });
+  return Number(res.rows[0]?.n ?? 0);
 }
 
 export async function getPickUiState(deviceId: string, bottleIds: string[]): Promise<PickUiState> {
   if (!DEVICE_ID_RE.test(deviceId)) {
-    return { openableCount: 0, pickCredits: 0, access: {} };
-  }
-
-  const pickCredits = await getCredits(deviceId);
-  const openableCount = await getOpenableCount(deviceId);
-  const access: Record<string, SeaBottleAccess> = {};
-
-  if (bottleIds.length === 0) {
-    return { openableCount, pickCredits, access };
+    return {
+      openableCount: 0,
+      pickCredits: 0,
+      exploreUnlocked: false,
+      exploreRemaining: 0,
+      exploreVisibleCount: 0,
+      access: {},
+    };
   }
 
   const now = Date.now();
+  const { pickCredits, exploreUnlocked, exploreRemaining } = await getDeviceOpenState(deviceId, now);
+  const availableUnopened = await countAvailableUnopened(deviceId, now);
+  const exploreVisibleCount = Math.min(exploreRemaining, availableUnopened);
+  const openableCount = pickCredits + exploreRemaining;
+  const access: Record<string, SeaBottleAccess> = {};
+
+  if (bottleIds.length === 0) {
+    return {
+      openableCount,
+      pickCredits,
+      exploreUnlocked,
+      exploreRemaining,
+      exploreVisibleCount,
+      access,
+    };
+  }
+
   const placeholders = bottleIds.map(() => "?").join(", ");
   const res = await db.execute({
     sql: `SELECT b.id, b.device_id,
@@ -171,15 +265,23 @@ export async function getPickUiState(deviceId: string, bottleIds: string[]): Pro
     if (row.owner) {
       // 自分のボトルは常に無料で開ける
       access[id] = "owner";
-    } else if (openableCount > 0) {
-      // 他人のボトルはピック権があれば開ける（既開封・未開封ともに消費）
-      access[id] = row.alreadyPicked ? "replay" : "new";
+    } else if (row.alreadyPicked) {
+      // 再開封はピック権のみで開ける（探索枠は未開封ボトル専用）。
+      access[id] = pickCredits > 0 ? "replay" : "locked";
     } else {
-      access[id] = "locked";
+      // 新規（未開封）は ピック権 or 探索枠 のどちらかがあれば開ける。
+      access[id] = pickCredits + exploreRemaining > 0 ? "new" : "locked";
     }
   }
 
-  return { openableCount, pickCredits, access };
+  return {
+    openableCount,
+    pickCredits,
+    exploreUnlocked,
+    exploreRemaining,
+    exploreVisibleCount,
+    access,
+  };
 }
 
 export async function pickBottle(deviceId: string, bottleId: string): Promise<PickResult> {
@@ -238,10 +340,29 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     };
   }
 
-  // 他人のボトルは「新規」も「再開封」もピック権を 1 消費する。
+  const now = Date.now();
+  const todayStart = startOfJstDay(now);
+
+  // 既ピック判定（reason 用 + 新規ピック時のみ pick_count をインクリメント）。
+  // 再開封は「ピック権」のみで開ける（探索枠は未開封ボトル専用）。
+  // 新規は「探索枠 → ピック権」の順に消費する。
+  const alreadyRes = await db.execute({
+    sql: "SELECT 1 FROM picks WHERE bottle_id = ? AND picker_device_id = ? LIMIT 1",
+    args: [bottleId, deviceId],
+  });
+  const isReplay = alreadyRes.rows.length > 0;
+
   // 事前チェック（最終的にはトランザクション内で再検証）
-  const credits = await getCredits(deviceId);
-  if (credits < 1) {
+  const state = await getDeviceOpenState(deviceId, now);
+  if (isReplay) {
+    if (state.pickCredits < 1) {
+      return {
+        ok: false,
+        error: "再開封できる権利がありません。ボトルを流して開封権を増やしましょう。",
+        openableRemaining: state.pickCredits + state.exploreRemaining,
+      };
+    }
+  } else if (state.pickCredits < 1 && state.exploreRemaining < 1) {
     return {
       ok: false,
       error: "開封できるボトルはありません。まず 1 本流して開封権を得てください。",
@@ -249,16 +370,7 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     };
   }
 
-  const now = Date.now();
-
-  // 既ピック判定（reason 用 + 新規ピック時のみ pick_count をインクリメント）
-  const alreadyRes = await db.execute({
-    sql: "SELECT 1 FROM picks WHERE bottle_id = ? AND picker_device_id = ? LIMIT 1",
-    args: [bottleId, deviceId],
-  });
-  const isReplay = alreadyRes.rows.length > 0;
-
-  // クレジット消費 + (新規なら) picks INSERT + pick_count +1 を同一トランザクションで
+  // 消費 + (新規なら) picks INSERT + pick_count +1 を同一トランザクションで
   const tx = await db.transaction("write");
   try {
     const live = await tx.execute({
@@ -278,11 +390,26 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
       return { ok: false, error: "このボトルはもう開封できません。", openableRemaining: await openableRemaining() };
     }
 
-    const upd = await tx.execute({
-      sql: "UPDATE devices SET pick_credits = pick_credits - 1 WHERE device_id = ? AND pick_credits >= 1",
-      args: [deviceId],
-    });
-    if (upd.rowsAffected !== 1) {
+    // 1 件分の開封リソースを消費する。新規のみ探索枠を先に使う。
+    let consumed = false;
+    if (!isReplay) {
+      // 探索枠（今日解放ぶん・残あり）を優先消費。
+      const exploreUpd = await tx.execute({
+        sql: `UPDATE devices SET explore_used = explore_used + 1
+               WHERE device_id = ? AND explore_unlocked_day = ? AND explore_used < ?`,
+        args: [deviceId, todayStart, EXPLORE_QUOTA],
+      });
+      consumed = exploreUpd.rowsAffected === 1;
+    }
+    if (!consumed) {
+      // 探索枠が無い / 再開封 → ピック権を消費。
+      const creditUpd = await tx.execute({
+        sql: "UPDATE devices SET pick_credits = pick_credits - 1 WHERE device_id = ? AND pick_credits >= 1",
+        args: [deviceId],
+      });
+      consumed = creditUpd.rowsAffected === 1;
+    }
+    if (!consumed) {
       await tx.rollback();
       return {
         ok: false,
@@ -316,7 +443,7 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     reason: isReplay ? "already" : "fresh",
     bottle: detail,
     cost: 1,
-    openableRemaining: credits - 1,
+    openableRemaining: await openableRemaining(),
     liked: likeState.liked,
     likeCount: likeState.likeCount,
   };

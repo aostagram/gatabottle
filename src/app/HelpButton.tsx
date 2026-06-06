@@ -104,7 +104,9 @@ export function HelpButton() {
                 <span>
                   <strong className="text-ink">✨ 拾う権利を増やす</strong>
                   <br />
-                  ボトルを 1 本流すごとに、あなたの「拾う権利」が 1 つ増えます。
+                  1・2 本目を流すと「拾う権利」が 1 つずつ増えます。3 本目を流すと
+                  <strong className="text-ink">🌊 海探索モード</strong>
+                  が解放され、その日だけ追加で最大 5 本まで探せます（翌日 0:00 にリセット）。
                 </span>
               </li>
             </ol>

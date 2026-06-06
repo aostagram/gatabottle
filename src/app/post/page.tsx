@@ -33,7 +33,9 @@ export default function PostPage() {
       <PostForm />
 
       <p className="relative z-10 mt-10 max-w-md text-center text-xs leading-relaxed text-ink/60">
-        ※ 投稿後、あなたにも「拾う権利」が 1 つ追加されます。
+        ※ 1・2 本目を流すと「拾う権利」が 1 つずつ増えます。
+        <br />
+        3 本目を流すと「🌊 海探索モード」が解放され、その日だけ追加で最大 5 本まで探せます（翌日 0:00 にリセット）。
       </p>
     </main>
   );

@@ -40,9 +40,19 @@ const client = createClient({ url, authToken });
 
 console.log(`→ migrating: ${url}`);
 for (const stmt of statements) {
-  await client.execute(stmt);
   const head = stmt.split("\n")[0].slice(0, 80);
-  console.log(`  ok: ${head}`);
+  try {
+    await client.execute(stmt);
+    console.log(`  ok: ${head}`);
+  } catch (err) {
+    // 後付け ALTER ... ADD COLUMN は再実行/fresh DB で「列が既に存在」になる。
+    // SQLite には ADD COLUMN IF NOT EXISTS が無いため、ここで握りつぶして冪等にする。
+    if (/duplicate column name/i.test(String(err?.message ?? err))) {
+      console.log(`  skip (already applied): ${head}`);
+    } else {
+      throw err;
+    }
+  }
 }
 console.log("done.");
 process.exit(0);

@@ -2,11 +2,22 @@
 -- data-model-v0.md 準拠（MVP は devices + bottles のみ。likes/picks/reports は次フェーズ）
 
 CREATE TABLE IF NOT EXISTS devices (
-  device_id     TEXT    PRIMARY KEY,
-  pick_credits  INTEGER NOT NULL DEFAULT 0,
-  created_at    INTEGER NOT NULL,
-  last_seen_at  INTEGER NOT NULL
+  device_id            TEXT    PRIMARY KEY,
+  pick_credits         INTEGER NOT NULL DEFAULT 0,
+  created_at           INTEGER NOT NULL,
+  last_seen_at         INTEGER NOT NULL,
+  -- 海探索モード（3本目を流すと当日限定で解放）。
+  -- explore_unlocked_day = 解放した JST 0:00 の UTC ms（0 = 未解放）。
+  -- 「今日の 0:00」と一致するときだけ有効。翌日になると自然に失効する（cron 不要）。
+  explore_unlocked_day INTEGER NOT NULL DEFAULT 0,
+  -- その解放日に探索で消費した本数。
+  explore_used         INTEGER NOT NULL DEFAULT 0
 );
+
+-- 既存 DB 向けの後付けカラム。fresh DB では上の CREATE 済みなので
+-- "duplicate column name" になるが、migrate.mjs 側で握りつぶす。
+ALTER TABLE devices ADD COLUMN explore_unlocked_day INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE devices ADD COLUMN explore_used INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS bottles (
   id            TEXT    PRIMARY KEY,
