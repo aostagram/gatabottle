@@ -9,7 +9,7 @@ import { BottleModal } from "./BottleModal";
 export type SeaBottle = { id: string };
 
 type BottleLayout = SeaBottle & {
-  topPct: number;
+  // 浮遊アニメーションの開始位置をずらして、全部が同時に動かないようにする。
   delaySec: number;
   durationSec: number;
   scale: number;
@@ -17,11 +17,10 @@ type BottleLayout = SeaBottle & {
 
 function layout(bottles: SeaBottle[]): BottleLayout[] {
   return bottles.map((b, i) => {
-    const topPct = 30 + ((i * 17) % 55);
-    const durationSec = 22 + ((i * 7) % 20);
-    const delaySec = -((i * 11) % durationSec);
-    const scale = 0.8 + ((i * 13) % 7) / 10;
-    return { ...b, topPct, durationSec, delaySec, scale };
+    const durationSec = 4 + ((i * 7) % 4);
+    const delaySec = -((i * 11) % 5);
+    const scale = 0.9 + ((i * 13) % 5) / 10;
+    return { ...b, durationSec, delaySec, scale };
   });
 }
 
@@ -146,7 +145,9 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
         </div>
       )}
 
-      {/* 流れるボトル */}
+      {/* 集約したボトル置き場（タイトルと「ボトルを流す」ボタンの間に配置）。
+          以前は画面全体を横切って流れていて「動く的」だったのでクリックしにくかった。
+          中央エリアにまとめ、その場でゆらゆら浮かぶだけにして開けやすくする。 */}
       {laid.length === 0 ? (
         <div className="pointer-events-none absolute inset-x-0 top-[55%] z-[5] text-center text-sm text-ink/70 px-6">
           まだ海にボトルがありません。
@@ -155,8 +156,8 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
         </div>
       ) : (
         <div
-          aria-label="海面に流れるボトル"
-          className="pointer-events-none absolute inset-0 z-[5] overflow-hidden"
+          aria-label="海面に集まったボトル"
+          className="pointer-events-none absolute inset-x-0 top-[40%] bottom-[24%] z-[5] flex flex-wrap content-center items-center justify-center gap-x-5 gap-y-3 overflow-y-auto px-6"
         >
           {laid.map((b) => {
             const access = accessMap[b.id];
@@ -177,9 +178,8 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
                       ? "ボトルを新規開封する"
                       : "開封できません"
               }
-              className="drift pointer-events-auto absolute -left-16 select-none text-4xl sm:text-5xl transition hover:drop-shadow-[0_0_12px_rgba(255,180,120,0.6)] focus:outline-none focus-visible:drop-shadow-[0_0_12px_rgba(255,180,120,0.9)] disabled:opacity-60"
+              className="float pointer-events-auto select-none text-4xl sm:text-5xl transition hover:drop-shadow-[0_0_12px_rgba(255,180,120,0.6)] focus:outline-none focus-visible:drop-shadow-[0_0_12px_rgba(255,180,120,0.9)] disabled:opacity-60"
               style={{
-                top: `${b.topPct}%`,
                 animationDuration: `${b.durationSec}s`,
                 animationDelay: `${b.delaySec}s`,
                 ["--bot-scale" as string]: b.scale,
