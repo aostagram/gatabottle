@@ -13,9 +13,10 @@ const DEVICE_ID_RE = /^[0-9a-f-]{8,64}$/i;
 // "use server" ファイルは async function 以外を export できないため、定数は非 export。
 // 値を他から参照したい場合は別ファイル（例: src/lib/limits.ts）に移すこと。
 const DAILY_BOTTLE_LIMIT = 3;
-const PICK_CREDIT_CAP = 3;
-// 3 本目を流すと解放される「海探索モード」で、その日に追加で開封できる本数。
-const EXPLORE_QUOTA = 5;
+// 投稿で貯められる「開封権」の上限（貯めすぎ防止）。
+const PICK_CREDIT_CAP = 10;
+// 1 日（JST）に無料で開封できる本数。使い切ったら 1 本流すごとに 1 本開けられる。
+const DAILY_FREE_OPENS = 3;
 
 export type CreateBottleState = {
   ok: boolean;
@@ -62,11 +63,7 @@ export async function createBottle(
     };
   }
 
-  // 今日の何本目か（1〜3）。3 本目だけ挙動が変わる。
-  const postNumber = todayCount + 1;
-  const opensSea = postNumber >= DAILY_BOTTLE_LIMIT; // === 3 本目
-
-  // device 行を用意（last_seen 更新）。クレジット/探索枠は本数に応じて別途更新する。
+  // device 行を用意（last_seen 更新）。開封権は本数に関わらず 1 本流すごとに +1。
   await db.execute({
     sql: `INSERT INTO devices (device_id, pick_credits, created_at, last_seen_at)
           VALUES (?, 0, ?, ?)
@@ -75,19 +72,12 @@ export async function createBottle(
     args: [deviceId, now, now],
   });
 
-  if (opensSea) {
-    // 3 本目 → 通常の開封権は付与せず、当日限定の「海探索モード」を解放する。
-    await db.execute({
-      sql: "UPDATE devices SET explore_unlocked_day = ?, explore_used = 0 WHERE device_id = ?",
-      args: [todayStart, deviceId],
-    });
-  } else {
-    // 1・2 本目 → これまで通り開封権を 1 つ付与（上限あり）。
-    await db.execute({
-      sql: "UPDATE devices SET pick_credits = MIN(pick_credits + 1, ?) WHERE device_id = ?",
-      args: [PICK_CREDIT_CAP, deviceId],
-    });
-  }
+  // 1 本流すごとに開封権を 1 つ付与（上限あり）。
+  // → 1 日の無料枠（DAILY_FREE_OPENS 本）を使い切っても、流せば流すほど開けられる。
+  await db.execute({
+    sql: "UPDATE devices SET pick_credits = MIN(pick_credits + 1, ?) WHERE device_id = ?",
+    args: [PICK_CREDIT_CAP, deviceId],
+  });
 
   const bottleId = crypto.randomUUID();
   await db.execute({
@@ -98,7 +88,7 @@ export async function createBottle(
   });
 
   revalidatePath("/");
-  redirect(opensSea ? "/?sea_opened=1" : "/?just_posted=1");
+  redirect("/?just_posted=1");
 }
 
 export type PickResult =
@@ -121,20 +111,16 @@ export type ToggleLikeResult =
 
 export type PickUiState = {
   /**
-   * 開封可能本数 = 残ピック権 + 残探索枠。
+   * 新規開封に使える残数 = 今日の無料開封の残り + 投稿で貯めた開封権。
    * 「他人のボトル」を開けるとき消費される（自分のボトルは無料なので含まない）。
-   * - 新規（未開封）のボトル: 探索枠 → ピック権 の順に消費。
-   * - 再開封のボトル: ピック権のみ消費（探索の対象外）。
+   * - 新規（未開封）のボトル: 今日の無料枠 → 開封権 の順に消費。
+   * - 再開封のボトル: 開封権のみ消費（無料枠は新規開封の専用）。
    */
   openableCount: number;
-  /** 永続クレジット（1・2 本目で増える）。再開封はこれだけを使う。 */
+  /** 投稿で貯めた開封権（再開封はこれだけを使う）。 */
   pickCredits: number;
-  /** 今日 3 本目を流して海探索モードが有効か。 */
-  exploreUnlocked: boolean;
-  /** 今日まだ残っている探索枠（最大 5、翌日 0:00 にリセット）。 */
-  exploreRemaining: number;
-  /** 実際に今日探索できる本数 = min(残探索枠, 未開封ボトル数)。UI の「本日探索可能：◯本」。 */
-  exploreVisibleCount: number;
+  /** 今日まだ残っている無料開封（最大 DAILY_FREE_OPENS、翌日 0:00 JST にリセット）。 */
+  freeOpensRemaining: number;
   access: Record<string, SeaBottleAccess>;
 };
 
@@ -148,57 +134,39 @@ async function getCredits(deviceId: string): Promise<number> {
 
 type DeviceOpenState = {
   pickCredits: number;
-  exploreUnlocked: boolean;
-  exploreRemaining: number;
+  freeOpensRemaining: number;
 };
 
 /**
  * device の開封リソースをまとめて取得する。
- * 探索枠は「解放日が今日 0:00(JST) と一致するとき」だけ有効。
- * 日付が変われば自動的に exploreRemaining = 0 となり、翌日 0:00 リセットを実現する。
+ * 無料開封の「今日の使用本数」は picks（他人ボトルの新規開封ログ）の今日ぶんから数える。
+ * 日付が変われば今日ぶんが 0 になり、翌日 0:00(JST) リセットが自動で実現する（cron 不要）。
  */
 async function getDeviceOpenState(
   deviceId: string,
   now: number = Date.now(),
 ): Promise<DeviceOpenState> {
-  const res = await db.execute({
-    sql: "SELECT pick_credits, explore_unlocked_day, explore_used FROM devices WHERE device_id = ?",
-    args: [deviceId],
-  });
-  const row = res.rows[0];
-  const pickCredits = Number(row?.pick_credits ?? 0);
-  const unlockedDay = Number(row?.explore_unlocked_day ?? 0);
-  const used = Number(row?.explore_used ?? 0);
-  const exploreUnlocked = unlockedDay !== 0 && unlockedDay === startOfJstDay(now);
-  const exploreRemaining = exploreUnlocked ? Math.max(0, EXPLORE_QUOTA - used) : 0;
-  return { pickCredits, exploreUnlocked, exploreRemaining };
+  const todayStart = startOfJstDay(now);
+  const [creditRes, usedRes] = await Promise.all([
+    db.execute({
+      sql: "SELECT pick_credits FROM devices WHERE device_id = ?",
+      args: [deviceId],
+    }),
+    db.execute({
+      sql: "SELECT COUNT(*) AS n FROM picks WHERE picker_device_id = ? AND picked_at >= ?",
+      args: [deviceId, todayStart],
+    }),
+  ]);
+  const pickCredits = Number(creditRes.rows[0]?.pick_credits ?? 0);
+  const freeOpensUsedToday = Number(usedRes.rows[0]?.n ?? 0);
+  const freeOpensRemaining = Math.max(0, DAILY_FREE_OPENS - freeOpensUsedToday);
+  return { pickCredits, freeOpensRemaining };
 }
 
-/** 「開封可能本数」= 残ピック権 + 残探索枠。再開封でも消費されるので海上カウントには依存しない。 */
+/** 「新規開封に使える残数」= 今日の無料開封の残り + 投稿で貯めた開封権。 */
 async function getOpenableCount(deviceId: string): Promise<number> {
   const s = await getDeviceOpenState(deviceId);
-  return s.pickCredits + s.exploreRemaining;
-}
-
-/**
- * この端末がまだ開封していない、開封対象になり得るボトルの本数。
- * 自分のボトル・既開封・期限切れ/アーカイブは除外する（探索モードの表示本数に使う）。
- */
-async function countAvailableUnopened(deviceId: string, now: number): Promise<number> {
-  const res = await db.execute({
-    sql: `SELECT COUNT(*) AS n
-            FROM bottles b
-           WHERE b.is_archived = 0
-             AND b.status = 'active'
-             AND b.expires_at > ?
-             AND b.device_id != ?
-             AND NOT EXISTS (
-               SELECT 1 FROM picks p
-                WHERE p.bottle_id = b.id AND p.picker_device_id = ?
-             )`,
-    args: [now, deviceId, deviceId],
-  });
-  return Number(res.rows[0]?.n ?? 0);
+  return s.pickCredits + s.freeOpensRemaining;
 }
 
 export async function getPickUiState(deviceId: string, bottleIds: string[]): Promise<PickUiState> {
@@ -206,29 +174,18 @@ export async function getPickUiState(deviceId: string, bottleIds: string[]): Pro
     return {
       openableCount: 0,
       pickCredits: 0,
-      exploreUnlocked: false,
-      exploreRemaining: 0,
-      exploreVisibleCount: 0,
+      freeOpensRemaining: 0,
       access: {},
     };
   }
 
   const now = Date.now();
-  const { pickCredits, exploreUnlocked, exploreRemaining } = await getDeviceOpenState(deviceId, now);
-  const availableUnopened = await countAvailableUnopened(deviceId, now);
-  const exploreVisibleCount = Math.min(exploreRemaining, availableUnopened);
-  const openableCount = pickCredits + exploreRemaining;
+  const { pickCredits, freeOpensRemaining } = await getDeviceOpenState(deviceId, now);
+  const openableCount = pickCredits + freeOpensRemaining;
   const access: Record<string, SeaBottleAccess> = {};
 
   if (bottleIds.length === 0) {
-    return {
-      openableCount,
-      pickCredits,
-      exploreUnlocked,
-      exploreRemaining,
-      exploreVisibleCount,
-      access,
-    };
+    return { openableCount, pickCredits, freeOpensRemaining, access };
   }
 
   const placeholders = bottleIds.map(() => "?").join(", ");
@@ -266,22 +223,15 @@ export async function getPickUiState(deviceId: string, bottleIds: string[]): Pro
       // 自分のボトルは常に無料で開ける
       access[id] = "owner";
     } else if (row.alreadyPicked) {
-      // 再開封はピック権のみで開ける（探索枠は未開封ボトル専用）。
+      // 再開封は開封権のみで開ける（無料枠は新規開封の専用）。
       access[id] = pickCredits > 0 ? "replay" : "locked";
     } else {
-      // 新規（未開封）は ピック権 or 探索枠 のどちらかがあれば開ける。
-      access[id] = pickCredits + exploreRemaining > 0 ? "new" : "locked";
+      // 新規（未開封）は 無料枠 or 開封権 のどちらかがあれば開ける。
+      access[id] = openableCount > 0 ? "new" : "locked";
     }
   }
 
-  return {
-    openableCount,
-    pickCredits,
-    exploreUnlocked,
-    exploreRemaining,
-    exploreVisibleCount,
-    access,
-  };
+  return { openableCount, pickCredits, freeOpensRemaining, access };
 }
 
 export async function pickBottle(deviceId: string, bottleId: string): Promise<PickResult> {
@@ -344,8 +294,8 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
   const todayStart = startOfJstDay(now);
 
   // 既ピック判定（reason 用 + 新規ピック時のみ pick_count をインクリメント）。
-  // 再開封は「ピック権」のみで開ける（探索枠は未開封ボトル専用）。
-  // 新規は「探索枠 → ピック権」の順に消費する。
+  // 再開封は「開封権」のみで開ける（無料枠は新規開封の専用）。
+  // 新規は「今日の無料枠 → 開封権」の順に消費する。
   const alreadyRes = await db.execute({
     sql: "SELECT 1 FROM picks WHERE bottle_id = ? AND picker_device_id = ? LIMIT 1",
     args: [bottleId, deviceId],
@@ -358,14 +308,14 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
     if (state.pickCredits < 1) {
       return {
         ok: false,
-        error: "再開封できる権利がありません。ボトルを流して開封権を増やしましょう。",
-        openableRemaining: state.pickCredits + state.exploreRemaining,
+        error: "再開封するには開封権が必要です。ボトルを 1 本流すと増えます。",
+        openableRemaining: state.pickCredits + state.freeOpensRemaining,
       };
     }
-  } else if (state.pickCredits < 1 && state.exploreRemaining < 1) {
+  } else if (state.pickCredits < 1 && state.freeOpensRemaining < 1) {
     return {
       ok: false,
-      error: "開封できるボトルはありません。まず 1 本流して開封権を得てください。",
+      error: `今日の無料開封（${DAILY_FREE_OPENS} 本）を使い切りました。ボトルを 1 本流すと、もう 1 本開けられます。`,
       openableRemaining: 0,
     };
   }
@@ -390,19 +340,32 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
       return { ok: false, error: "このボトルはもう開封できません。", openableRemaining: await openableRemaining() };
     }
 
-    // 1 件分の開封リソースを消費する。新規のみ探索枠を先に使う。
+    // 開封者の device 行を用意する。
+    // 無料開封で初めて訪れた未投稿ユーザーは devices 行がまだ無いため、
+    // picks の FK と開封権の消費先を満たすようここで作っておく。
+    await tx.execute({
+      sql: `INSERT INTO devices (device_id, pick_credits, created_at, last_seen_at)
+            VALUES (?, 0, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+      args: [deviceId, now, now],
+    });
+
+    // 1 件分の開封リソースを消費する。
+    // 新規開封は「今日の無料枠 → 開封権」の順、再開封は開封権のみ。
     let consumed = false;
     if (!isReplay) {
-      // 探索枠（今日解放ぶん・残あり）を優先消費。
-      const exploreUpd = await tx.execute({
-        sql: `UPDATE devices SET explore_used = explore_used + 1
-               WHERE device_id = ? AND explore_unlocked_day = ? AND explore_used < ?`,
-        args: [deviceId, todayStart, EXPLORE_QUOTA],
+      // 今日の新規開封数（picks の今日ぶん）が無料枠未満なら、無料で開ける（開封権を消費しない）。
+      const usedRes = await tx.execute({
+        sql: "SELECT COUNT(*) AS n FROM picks WHERE picker_device_id = ? AND picked_at >= ?",
+        args: [deviceId, todayStart],
       });
-      consumed = exploreUpd.rowsAffected === 1;
+      const freeOpensUsedToday = Number(usedRes.rows[0]?.n ?? 0);
+      if (freeOpensUsedToday < DAILY_FREE_OPENS) {
+        consumed = true;
+      }
     }
     if (!consumed) {
-      // 探索枠が無い / 再開封 → ピック権を消費。
+      // 無料枠切れ / 再開封 → 開封権を消費。
       const creditUpd = await tx.execute({
         sql: "UPDATE devices SET pick_credits = pick_credits - 1 WHERE device_id = ? AND pick_credits >= 1",
         args: [deviceId],
@@ -413,7 +376,7 @@ export async function pickBottle(deviceId: string, bottleId: string): Promise<Pi
       await tx.rollback();
       return {
         ok: false,
-        error: "開封できるボトルはありません。まず 1 本流して開封権を得てください。",
+        error: `今日の無料開封（${DAILY_FREE_OPENS} 本）を使い切りました。ボトルを 1 本流すと、もう 1 本開けられます。`,
         openableRemaining: 0,
       };
     }
