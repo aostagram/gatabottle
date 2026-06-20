@@ -56,11 +56,21 @@ body {
   to   { transform: translateX(calc(100vw + 8rem)) scale(var(--bot-scale, 1)); }
 }
 
-/* 中央エリアに集約したボトル用。横移動せず、その場でゆらゆら浮かぶだけにして
-   「止まった的」にすることでクリックしやすくする。 */
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(-3deg) scale(var(--bot-scale, 1)); }
-  50%      { transform: translateY(-8px) rotate(3deg) scale(var(--bot-scale, 1)); }
+/* 釣り上げ演出: 糸が下りて止まり、ボトルごと引き上げる。 */
+@keyframes castLine {
+  0%   { height: 0; }
+  40%  { height: 40vh; }
+  60%  { height: 40vh; }
+  100% { height: 7vh; }
+}
+
+@keyframes castBottle {
+  0%   { transform: translate(-50%, -8vh); opacity: 0; }
+  15%  { opacity: 1; }
+  40%  { transform: translate(-50%, 40vh); }
+  55%  { transform: translate(-50%, 36vh) rotate(-6deg); }
+  60%  { transform: translate(-50%, 40vh); }
+  100% { transform: translate(-50%, 7vh); }
 }
 
 @keyframes openIn {
@@ -89,12 +99,57 @@ body {
   will-change: transform;
 }
 
-.float {
-  animation-name: float;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+.cast-line {
+  animation: castLine 1600ms ease-in-out forwards;
+}
+
+.cast-bottle {
+  animation: castBottle 1600ms ease-in-out forwards;
   will-change: transform;
 }
+
+/* ガチャガチャ演出: カプセルが落ちて → 揺れて → パカッと開く。 */
+@keyframes gachaCapsule {
+  0%   { transform: translate(-50%, -60vh) scale(0.85); opacity: 0; }
+  18%  { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  26%  { transform: translate(-50%, -28px) scale(1); }
+  34%  { transform: translate(-50%, 0) scale(1.05, 0.95); }
+  42%  { transform: translate(-50%, 0) rotate(-12deg); }
+  50%  { transform: translate(-50%, 0) rotate(12deg); }
+  58%  { transform: translate(-50%, 0) rotate(-9deg); }
+  66%  { transform: translate(-50%, 0) rotate(7deg); }
+  74%  { transform: translate(-50%, 0) rotate(0deg) scale(1.06); }
+  100% { transform: translate(-50%, 0) rotate(0deg) scale(1); }
+}
+
+@keyframes gachaTop {
+  0%, 74% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  88%     { transform: translateY(-70px) rotate(-30deg); opacity: 1; }
+  100%    { transform: translateY(-130px) rotate(-55deg); opacity: 0; }
+}
+
+@keyframes gachaSeam {
+  0%, 74%   { opacity: 1; }
+  82%, 100% { opacity: 0; }
+}
+
+@keyframes gachaPrize {
+  0%, 72% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  86%     { transform: translate(-50%, -90%) scale(1.3); opacity: 1; }
+  100%    { transform: translate(-50%, -70%) scale(1.1); opacity: 1; }
+}
+
+@keyframes gachaSpark {
+  0%, 72% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  86%     { transform: translate(calc(-50% + var(--a) * 60px), -120%) scale(1.2); opacity: 1; }
+  100%    { transform: translate(calc(-50% + var(--a) * 80px), -150%) scale(0.6); opacity: 0; }
+}
+
+.gacha-capsule { animation: gachaCapsule 1900ms ease-in-out forwards; will-change: transform; }
+.gacha-top     { animation: gachaTop 1900ms ease-in-out forwards; will-change: transform; }
+.gacha-seam    { animation: gachaSeam 1900ms ease-in-out forwards; }
+.gacha-prize   { animation: gachaPrize 1900ms ease-out forwards; will-change: transform; }
+.gacha-spark   { animation: gachaSpark 1900ms ease-out forwards; will-change: transform; }
 
 .open-anim {
   animation: openIn 220ms ease-out;
