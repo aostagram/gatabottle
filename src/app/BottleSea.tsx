@@ -43,8 +43,9 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   const [accessMap, setAccessMap] = useState<Record<string, SeaBottleAccess>>({});
   const [result, setResult] = useState<PickResult | null>(null);
   const [pending, startTransition] = useTransition();
-  // 「🎣 ボトルを釣る」演出中フラグ。釣り上げアニメーションを見せてから開封する。
+  // 開封演出の進行フラグ。釣り上げ → ガチャ → 開封モーダル の順に見せる。
   const [casting, setCasting] = useState(false);
+  const [gacha, setGacha] = useState(false);
 
   useEffect(() => {
     const id = getOrCreateDeviceId();
@@ -80,7 +81,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
   }
 
   function handlePick(bottleId: string) {
-    if (!deviceId || pending || casting) return;
+    if (!deviceId || pending || casting || gacha) return;
     const access = accessMap[bottleId];
     if (!canTapBottle(access, openableCount ?? 0)) return;
     openBottle(bottleId);
@@ -104,30 +105,53 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
     [laid, accessMap, openableCount],
   );
 
-  // 「🎣 ボトルを釣る」: 釣り上げアニメーションを見せてから 1 本開封する。
+  // 「🎣 ボトルを釣る」: 釣り上げ → ガチャ → 開封モーダル の順に演出してから 1 本開封する。
   function handleFish() {
-    if (!deviceId || pending || casting) return;
+    if (!deviceId || pending || casting || gacha) return;
     const target = chooseFishTarget();
     if (!target) return;
     setCasting(true);
-    // 釣り演出（約 1.6s）を見せてから開封 → 開封モーダルの演出につなぐ。
+    // 1) 釣り上げ演出（約 1.6s）
     window.setTimeout(() => {
       setCasting(false);
-      openBottle(target);
+      // 2) ガチャガチャ演出（約 1.9s）: カプセルが落ちて揺れてパカッと開く
+      setGacha(true);
+      window.setTimeout(() => {
+        setGacha(false);
+        // 3) 開封 → BottleModal の open-anim で中身を表示
+        openBottle(target);
+      }, 1900);
     }, 1600);
   }
 
   return (
     <>
-      {/* ピック権 HUD */}
-      <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col items-end gap-1">
-        <div className="rounded-full bg-sand/85 px-4 py-2 text-xs text-ink/80 shadow-md backdrop-blur">
-          {openableCount === null ? "🍾 …" : `🍾 開封可能 ${openableCount} 本`}
-        </div>
-        {freeOpensRemaining > 0 && (
-          <div className="rounded-full bg-ribbon/90 px-4 py-2 text-xs font-semibold text-sand shadow-md backdrop-blur">
-            🎁 今日の無料開封 のこり {freeOpensRemaining} 本
+      {/* ピック権 HUD + 「🎣 ボトルを釣る」ボタン（開封可能本数の下に配置）。
+          流れるボトルを直接タップしなくても、ここから 1 本を釣り上げて開封できる。 */}
+      <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col items-end gap-2">
+        <div className="flex flex-col items-end gap-1">
+          <div className="rounded-full bg-sand/85 px-4 py-2 text-xs text-ink/80 shadow-md backdrop-blur">
+            {openableCount === null ? "🍾 …" : `🍾 開封可能 ${openableCount} 本`}
           </div>
+          {freeOpensRemaining > 0 && (
+            <div className="rounded-full bg-ribbon/90 px-4 py-2 text-xs font-semibold text-sand shadow-md backdrop-blur">
+              🎁 今日の無料開封 のこり {freeOpensRemaining} 本
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleFish}
+          disabled={pending || casting || gacha || !deviceId || !fishTarget}
+          aria-label="ボトルを釣り上げて開封する"
+          className="inline-flex items-center gap-2 rounded-full bg-ribbon px-6 py-3 text-sm font-semibold tracking-widest text-sand shadow-xl ring-2 ring-white/40 transition hover:bg-ribbon/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          🎣 ボトルを釣る
+        </button>
+        {laid.length > 0 && !fishTarget && openableCount !== null && (
+          <p className="max-w-[12rem] rounded-2xl bg-sand/80 px-3 py-1 text-right text-[11px] leading-snug text-ink/70 shadow backdrop-blur">
+            今は開封できるボトルがありません。ボトルを流すと釣れます。
+          </p>
         )}
       </div>
 
@@ -151,7 +175,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
               <button
                 key={b.id}
                 type="button"
-                disabled={pending || casting || !deviceId || !tappable}
+                disabled={pending || casting || gacha || !deviceId || !tappable}
                 onClick={() => handlePick(b.id)}
                 aria-label={
                   access === "owner"
@@ -187,27 +211,7 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
         </div>
       )}
 
-      {/* 「🎣 ボトルを釣る」ボタン（タイトルと「ボトルを流す」ボタンの間に配置）。
-          流れるボトルを直接タップしなくても、ここから 1 本を釣り上げて開封できる。
-          スマホでも押しやすいよう中央下に大きく置く。 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-[27%] z-20 flex flex-col items-center gap-2 px-6">
-        <button
-          type="button"
-          onClick={handleFish}
-          disabled={pending || casting || !deviceId || !fishTarget}
-          aria-label="ボトルを釣り上げて開封する"
-          className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-ribbon px-8 py-4 text-base font-semibold tracking-widest text-sand shadow-xl ring-2 ring-white/40 transition hover:bg-ribbon/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          🎣 ボトルを釣る
-        </button>
-        {laid.length > 0 && !fishTarget && openableCount !== null && (
-          <p className="pointer-events-none rounded-full bg-sand/80 px-3 py-1 text-[11px] text-ink/70 shadow backdrop-blur">
-            今は開封できるボトルがありません。ボトルを流すと釣れます。
-          </p>
-        )}
-      </div>
-
-      {/* 釣り上げ演出: 竿から糸が下りてボトルを引き上げる。完了後に開封モーダルへ。 */}
+      {/* 釣り上げ演出: 竿から糸が下りてボトルを引き上げる。完了後にガチャ演出へ。 */}
       {casting && (
         <div
           role="status"
@@ -223,6 +227,33 @@ export function BottleSea({ bottles }: { bottles: SeaBottle[] }) {
           <span className="cast-bottle absolute left-1/2 top-[17vh] text-5xl leading-none">🍾</span>
           <p className="absolute inset-x-0 bottom-[22%] text-center text-sm font-semibold tracking-widest text-sand drop-shadow">
             🎣 ボトルを釣り上げています…
+          </p>
+        </div>
+      )}
+
+      {/* ガチャガチャ演出: カプセルが落ちてきて揺れ、パカッと開いて中身が飛び出す。
+          完了後に BottleModal（open-anim）で曲を表示する。 */}
+      {gacha && (
+        <div
+          role="status"
+          aria-label="ガチャを回しています"
+          className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-ink/40 backdrop-blur-[1px]"
+        >
+          <div className="relative h-32 w-32">
+            {/* カプセル（落下＋バウンド＋ぷるぷる） */}
+            <div className="gacha-capsule absolute left-1/2 top-0 h-28 w-28">
+              <span className="gacha-top absolute inset-x-0 top-0 h-1/2 rounded-t-full bg-ribbon shadow-inner" />
+              <span className="gacha-bottom absolute inset-x-0 bottom-0 h-1/2 rounded-b-full bg-sand shadow-inner ring-1 ring-ink/10" />
+              <span className="gacha-seam absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 bg-ink/20" />
+            </div>
+            {/* 中身（開いた瞬間に飛び出す） */}
+            <span className="gacha-prize absolute left-1/2 top-1/2 text-4xl leading-none">🍾</span>
+            {/* きらきら */}
+            <span className="gacha-spark absolute left-1/2 top-1/2 text-2xl" style={{ ["--a" as string]: "-1" }}>✨</span>
+            <span className="gacha-spark absolute left-1/2 top-1/2 text-2xl" style={{ ["--a" as string]: "1" }}>✨</span>
+          </div>
+          <p className="absolute inset-x-0 bottom-[22%] text-center text-sm font-semibold tracking-widest text-sand drop-shadow">
+            🎉 なにが出るかな…
           </p>
         </div>
       )}
