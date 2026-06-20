@@ -56,11 +56,21 @@ body {
   to   { transform: translateX(calc(100vw + 8rem)) scale(var(--bot-scale, 1)); }
 }
 
-/* 中央エリアに集約したボトル用。横移動せず、その場でゆらゆら浮かぶだけにして
-   「止まった的」にすることでクリックしやすくする。 */
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(-3deg) scale(var(--bot-scale, 1)); }
-  50%      { transform: translateY(-8px) rotate(3deg) scale(var(--bot-scale, 1)); }
+/* 釣り上げ演出: 糸が下りて止まり、ボトルごと引き上げる。 */
+@keyframes castLine {
+  0%   { height: 0; }
+  40%  { height: 40vh; }
+  60%  { height: 40vh; }
+  100% { height: 7vh; }
+}
+
+@keyframes castBottle {
+  0%   { transform: translate(-50%, -8vh); opacity: 0; }
+  15%  { opacity: 1; }
+  40%  { transform: translate(-50%, 40vh); }
+  55%  { transform: translate(-50%, 36vh) rotate(-6deg); }
+  60%  { transform: translate(-50%, 40vh); }
+  100% { transform: translate(-50%, 7vh); }
 }
 
 @keyframes openIn {
@@ -89,10 +99,12 @@ body {
   will-change: transform;
 }
 
-.float {
-  animation-name: float;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+.cast-line {
+  animation: castLine 1600ms ease-in-out forwards;
+}
+
+.cast-bottle {
+  animation: castBottle 1600ms ease-in-out forwards;
   will-change: transform;
 }
 
