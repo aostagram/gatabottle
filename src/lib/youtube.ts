@@ -43,3 +43,33 @@ export function extractYoutubeId(input: string): string | null {
 export function youtubeEmbedUrl(youtubeId: string): string {
   return `https://www.youtube.com/embed/${youtubeId}?rel=0&modestbranding=1`;
 }
+
+export type YoutubeAuthorInfo = { author_name: string | null; author_url: string | null };
+
+/**
+ * YouTube oEmbed から動画の投稿チャンネル情報（author_name / author_url）を取得する。
+ * API キー不要。動画が非公開・削除・埋め込み不可・通信失敗のときは null を返す（= 判定不能）。
+ */
+export async function fetchYoutubeAuthor(
+  youtubeId: string,
+  timeoutMs = 4000,
+): Promise<YoutubeAuthorInfo | null> {
+  const target = `https://www.youtube.com/watch?v=${youtubeId}`;
+  const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(target)}&format=json`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(oembed, { signal: controller.signal });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { author_name?: string; author_url?: string };
+    return {
+      author_name: json.author_name ?? null,
+      author_url: json.author_url ?? null,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}

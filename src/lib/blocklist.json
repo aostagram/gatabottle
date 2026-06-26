@@ -1,0 +1,6 @@
+{
+  "_comment": "投稿・既存削除でブロックする歌手/チャンネル。YouTube oEmbed が返すチャンネル名(author_name)・チャンネルURL(author_url)と照合する。artistNames はチャンネル名の部分一致(NFKC正規化+小文字+空白除去)。channelIds は UC で始まるチャンネルID、channelHandles は @ から始まるハンドルの完全一致。アプリ(src/lib/blocklist.ts)と scripts/purge-blocked.mjs の両方がこのファイルを読む。",
+  "artistNames": ["さくさくぼたもち"],
+  "channelIds": [],
+  "channelHandles": []
+}

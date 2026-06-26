@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { startOfJstDay } from "@/lib/time";
-import { extractYoutubeId } from "@/lib/youtube";
+import { extractYoutubeId, fetchYoutubeAuthor } from "@/lib/youtube";
+import { isBlockedAuthor } from "@/lib/blocklist";
 
 const BOTTLE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMENT_MAX_LENGTH = 140;
@@ -44,6 +45,13 @@ export async function createBottle(
   const youtubeId = extractYoutubeId(youtubeUrl);
   if (!youtubeId) {
     return { ok: false, error: "YouTube の URL を確認してください。" };
+  }
+
+  // ブロック対象の歌手/チャンネルの曲は投稿させない。
+  // oEmbed が取れない（通信失敗・非公開等）ときは判定不能のため通す（fail-open）。
+  const author = await fetchYoutubeAuthor(youtubeId);
+  if (isBlockedAuthor(author)) {
+    return { ok: false, error: "この曲・チャンネルは投稿できません。" };
   }
 
   const now = Date.now();
