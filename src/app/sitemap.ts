@@ -2,26 +2,15 @@ import type { MetadataRoute } from "next";
 
 const SITE_URL = "https://www.gatabottle.com";
 
+// サービス終了後はトップ（お知らせ）のみ。/post・/ranking・/history は
+// next.config.ts のリダイレクトでトップへ寄せているため載せない。
 export default function sitemap(): MetadataRoute.Sitemap {
-  const now = new Date();
   return [
     {
       url: `${SITE_URL}/`,
-      lastModified: now,
-      changeFrequency: "daily",
+      lastModified: new Date(),
+      changeFrequency: "yearly",
       priority: 1,
-    },
-    {
-      url: `${SITE_URL}/post`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${SITE_URL}/ranking`,
-      lastModified: now,
-      changeFrequency: "weekly",
-      priority: 0.7,
     },
   ];
 }

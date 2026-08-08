@@ -1,36 +1,16 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { db } from "@/lib/db";
-import { BottleSea, type SeaBottle } from "./BottleSea";
-import { HelpButton } from "./HelpButton";
 import { WaveAudio } from "./WaveAudio";
 
-// 海面のボトル一覧は投稿ごとに変わるので、リクエストごとに SSR する。
-// prerender されると seed 後の DB 変更が反映されない。
-export const dynamic = "force-dynamic";
-
+// サービス終了ページ。DB アクセスは一切行わないので、ビルド時に静的生成される
+// （= リクエストごとの SSR / Turso への接続が発生しない）。
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-async function getActiveBottles(): Promise<SeaBottle[]> {
-  const now = Date.now();
-  const result = await db.execute({
-    sql: `SELECT id
-            FROM bottles
-           WHERE is_archived = 0
-             AND status = 'active'
-             AND expires_at > ?
-        ORDER BY created_at DESC
-           LIMIT 30`,
-    args: [now],
-  });
-  return result.rows.map((row) => ({ id: String(row.id) }));
-}
+// 終了日を変える場合はここだけ直す。
+const SERVICE_END_LABEL = "2026年8月8日";
 
-export default async function Home() {
-  const bottles = await getActiveBottles();
-
+export default function Home() {
   return (
     <main className="relative flex-1 flex flex-col items-center justify-between overflow-hidden">
       {/* きらきら */}
@@ -50,17 +30,13 @@ export default async function Home() {
         ))}
       </div>
 
-      {/* 左上のツール群（波の音 + 使い方） */}
+      {/* 波の音だけは、まだ流れています */}
       <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
         <WaveAudio />
-        <HelpButton />
       </div>
 
-      {/* 流れるボトル */}
-      <BottleSea bottles={bottles} />
-
       {/* タイトル */}
-      <header className="relative z-10 pt-16 sm:pt-24 text-center px-6">
+      <header className="relative z-10 pt-12 sm:pt-16 text-center px-6">
         <p className="text-sm sm:text-base tracking-[0.4em] text-ink/70 mb-3">
           NIIGATA — MUSIC IN A BOTTLE
         </p>
@@ -73,12 +49,46 @@ export default async function Home() {
         <p className="mt-3 text-xs sm:text-sm tracking-[0.3em] text-ink/65">
           新潟発・音楽交換ボトルメール
         </p>
-        <p className="mt-6 max-w-md mx-auto text-base sm:text-lg leading-relaxed text-ink/85">
-          新潟の海に、音楽をボトルに詰めて流す。
-          <br />
-          誰かが、いつか、拾ってくれるかもしれない。
-        </p>
       </header>
+
+      {/* サービス終了のお知らせ */}
+      <section
+        aria-labelledby="closed-title"
+        className="relative z-10 mx-6 mt-10 w-full max-w-md rounded-3xl bg-sand/90 px-6 py-7 text-center shadow-xl backdrop-blur sm:px-8"
+      >
+        <p aria-hidden className="bob text-5xl leading-none">
+          🍾
+        </p>
+        <p className="mt-4 text-xs tracking-[0.3em] text-ink/60">
+          THANK YOU
+        </p>
+        <h2
+          id="closed-title"
+          className="mt-2 text-xl sm:text-2xl font-semibold text-ink"
+        >
+          {/* 日本語は単語の途中で折り返されるので、文節ごとに inline-block で包んで
+              区切りのいい位置で改行させる。 */}
+          <span className="inline-block">潟ボトルは、</span>
+          <span className="inline-block">サービスを終了しました</span>
+        </h2>
+        <p className="mt-4 text-sm leading-relaxed text-ink/80">
+          <span className="inline-block">{SERVICE_END_LABEL}をもって、</span>
+          <span className="inline-block">潟ボトルのサービスを終了しました。</span>
+          <br />
+          <span className="inline-block">ボトルを流す・拾う・いいねなどの機能は、</span>
+          <span className="inline-block">すべて停止しています。</span>
+        </p>
+        <p className="mt-4 text-sm leading-relaxed text-ink/80">
+          海に流していただいた一本一本と、
+          <br />
+          知らない誰かの曲を拾ってくれたみなさんへ。
+          <br />
+          ほんとうに、ありがとうございました。
+        </p>
+        <p className="mt-5 text-xs leading-relaxed text-ink/60">
+          ※ 投稿された曲・コメント・開封履歴は公開されません。
+        </p>
+      </section>
 
       {/* 海面の波 */}
       <div
@@ -103,35 +113,15 @@ export default async function Home() {
         </svg>
       </div>
 
-      {/* CTA */}
       <footer className="relative z-10 w-full px-6 pb-10 pt-2 text-center">
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/post"
-            className="inline-block rounded-full bg-ribbon px-7 py-3 text-sm font-semibold tracking-widest text-sand shadow-lg transition hover:bg-ribbon/90"
-          >
-            🍾 ボトルを流す
-          </Link>
-          <Link
-            href="/ranking"
-            className="inline-block rounded-full bg-sand/80 px-6 py-3 text-sm font-semibold tracking-widest text-ink shadow-md backdrop-blur transition hover:bg-sand"
-          >
-            📜 先週のベスト3
-          </Link>
-          <Link
-            href="/history"
-            className="inline-block rounded-full bg-sand/80 px-6 py-3 text-sm font-semibold tracking-widest text-ink shadow-md backdrop-blur transition hover:bg-sand"
-          >
-            🎧 開封した曲
-          </Link>
-        </div>
-        <p className="mt-4 text-xs tracking-widest text-ink/60">
+        {/* 海の深い部分に重なるので、フッターだけ砂色で読めるようにする */}
+        <p className="text-xs tracking-widest text-sand/75">
           v0.1 · gatabottle.com
         </p>
-        <p className="mt-3 max-w-lg mx-auto text-[11px] leading-relaxed text-ink/55">
-          潟ボトルは、新潟から音楽をシェア・交換するためのアプリです。
-          YouTube リンクをボトルに詰めて海に流すと、知らない誰かが拾って聴いてくれます。
-          新潟の音楽好きが集う、偶然の音楽出会いをつくるコミュニティ。
+        <p className="mt-3 max-w-lg mx-auto text-[11px] leading-relaxed text-sand/70">
+          潟ボトルは、新潟から音楽をシェア・交換するためのアプリでした。
+          YouTube リンクをボトルに詰めて海に流すと、知らない誰かが拾って聴いてくれる。
+          そんな偶然の音楽出会いを、たくさんの方に楽しんでいただきました。
         </p>
       </footer>
     </main>
