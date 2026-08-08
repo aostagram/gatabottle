@@ -1,3 +1,23 @@
+## ⚠️ サービス終了について
+
+潟ボトルはサービスを終了しました。現在このリポジトリは、トップページに
+「サービス終了のお知らせ」を出すだけの**静的サイト**です。
+
+- 投稿（`/post`）・ランキング（`/ranking`）・開封履歴（`/history`）の各ページは廃止し、
+  `next.config.ts` のリダイレクトでトップへ寄せています。
+- 投稿・開封・いいねの Server Actions と DB クライアント（`src/lib/actions.ts` /
+  `src/lib/db.ts`）は削除済みです。**アプリ実行時に Turso へ接続しません**
+  （＝リクエストごとの DB クレジット消費が発生しません）。
+- そのため `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` はアプリの実行に不要です。
+  DB 自体を消してもサイトは動きます。
+- `scripts/migrate.mjs` / `scripts/seed.mjs` と `src/lib/schema.sql` は、
+  データの退避や将来の復活用に残してあります（実行時には動きません）。
+- 終了日の表記は `src/app/page.tsx` の `SERVICE_END_LABEL` を書き換えてください。
+
+以前の機能一式は Git 履歴（`a7c09e1` 以前）に残っています。
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

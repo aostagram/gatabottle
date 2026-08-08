@@ -12,9 +12,9 @@ const klee = Klee_One({
 
 const SITE_URL = "https://www.gatabottle.com";
 const SITE_NAME = "潟ボトル";
-const SITE_TITLE = "新潟で音楽をシェア｜潟ボトル";
+const SITE_TITLE = "サービス終了のお知らせ｜潟ボトル";
 const SITE_DESCRIPTION =
-  "新潟から音楽をシェア。YouTubeリンクをボトルに詰めて海に流し、知らない誰かと音楽を交換できる、偶然の出会いアプリ「潟ボトル」。新潟の音楽好きが集う音楽交換コミュニティ。";
+  "新潟発の音楽交換アプリ「潟ボトル」は、サービスを終了しました。ボトルを流す・拾うなどの機能はすべて停止しています。ご利用ありがとうございました。";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -23,17 +23,7 @@ export const metadata: Metadata = {
     template: "%s | 潟ボトル",
   },
   description: SITE_DESCRIPTION,
-  keywords: [
-    "潟ボトル",
-    "新潟 音楽交換",
-    "新潟 音楽 シェア",
-    "音楽 交換 アプリ",
-    "音楽 シェア",
-    "YouTube シェア",
-    "ボトルメール",
-    "新潟",
-    "音楽 コミュニティ",
-  ],
+  keywords: ["潟ボトル", "潟ボトル サービス終了", "gatabottle", "新潟"],
   applicationName: SITE_NAME,
   authors: [{ name: SITE_NAME }],
   creator: SITE_NAME,
@@ -84,22 +74,6 @@ const jsonLd = {
       alternateName: "GATA BOTTLE",
       description: SITE_DESCRIPTION,
       inLanguage: "ja",
-    },
-    {
-      "@type": "WebApplication",
-      "@id": `${SITE_URL}/#app`,
-      name: SITE_NAME,
-      url: SITE_URL,
-      description:
-        "新潟発の音楽交換・シェアアプリ。YouTubeリンクをボトルに詰めて海に流し、知らない誰かと音楽を交換する。",
-      applicationCategory: "MusicApplication",
-      operatingSystem: "Web",
-      inLanguage: "ja",
-      offers: {
-        "@type": "Offer",
-        price: "0",
-        priceCurrency: "JPY",
-      },
     },
     {
       "@type": "Organization",

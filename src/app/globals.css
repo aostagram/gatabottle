@@ -24,7 +24,10 @@
 }
 
 body {
-  background: linear-gradient(
+  /* ビューポートに貼り付けて 1 枚だけ描く。ページが画面より高くなっても
+     グラデーションが繰り返されず、下端は必ず深い海の色になる。 */
+  background-color: var(--sea-deep);
+  background-image: linear-gradient(
     to bottom,
     var(--sky-dawn) 0%,
     var(--sky-sunset) 28%,
@@ -32,6 +35,8 @@ body {
     var(--sea-mid) 75%,
     var(--sea-deep) 100%
   );
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-klee), "Hiragino Mincho ProN", "Yu Mincho", serif;
 }
